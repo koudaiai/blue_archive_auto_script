@@ -5,7 +5,7 @@
 
 # Check the version
 GIT_HOME="/usr/bin/git"  # 修改为你的 git 可执行文件路径
-REPO_URL_HTTP="https://gitee.com/pur1fy/blue_archive_auto_script.git"  # 修改为你的仓库地址
+REPO_URL_HTTP="https://gitee.com/koudaiai/blue_archive_auto_script.git"  # 修改为你的仓库地址
 
 # 设置虚拟环境的名称
 VENV_NAME="env"
