@@ -52,7 +52,6 @@ def sweep(self, number, times):
             continue
     return True
 
-
 def check_sweep_availability(self, plot):
     if plot == "activity_task-info":
         if image.compare_image(self, "activity_task-no-goals"):
@@ -102,11 +101,14 @@ def start_story(self):
     }
     rgb_ends = [
         "formation_edit1",
-        "reward_acquired"
+        "reward_acquired",
     ]
-    img_ends = "plot_formation-edit"
+    img_ends = [
+        "plot_formation-edit",
+        "activity_formation"
+    ]
     res = picture.co_detect(self, rgb_ends, None, img_ends, img_possibles, skip_first_screenshot=True)
-    if res == "formation_edit1" or res == "plot_formation-edit":
+    if res in ["formation_edit1", "activity_formation", "plot_formation-edit"]:
         start_fight(self, 1)
         main_story.auto_fight(self)
     elif res == "reward_acquired":
@@ -119,7 +121,8 @@ def start_fight(self, i):
         "formation_edit" + str(i): (1156, 659)
     }
     img_possibles = {
-        "plot_formation-edit": (1156, 659)
+        "plot_formation-edit": (1156, 659),
+        "activity_formation": (1156, 659),
     }
     rgb_ends = "fighting_feature"
     picture.co_detect(self, rgb_ends, rgb_possibles, None, img_possibles, skip_first_screenshot=True)
@@ -130,20 +133,7 @@ def explore_mission(self):
     to_activity(self, "mission", True, True)
     last_target_mission = 1
     total_missions = 12
-    characteristic = [
-        'pierce1',
-        'mystic1',
-        'burst1',
-        'mystic1',
-        'burst1',
-        'mystic1',
-        'burst1',
-        'mystic1',
-        'burst1',
-        'mystic1',
-        'burst1',
-        'mystic1',
-    ]
+    characteristic = get_stage_data(self)["mission"]
     while last_target_mission <= total_missions and self.flag_run:
         to_mission_task_info(self, last_target_mission)
         res = color.check_sweep_availability(self)
@@ -156,7 +146,7 @@ def explore_mission(self):
         if last_target_mission == total_missions and res == "sss":
             self.logger.info("All MISSION SSS")
             return True
-        number = self.config[characteristic[last_target_mission - 1]]
+        number = int(self.config_set.get(characteristic[last_target_mission - 1]))
         self.logger.info("according to config, choose formation " + str(number))
         to_formation_edit_i(self, number, (940, 538), True)
         start_fight(self, number)
@@ -201,11 +191,7 @@ def explore_challenge(self):
 
 
 def to_activity(self, region, skip_first_screenshot=False, need_swipe=False):
-    task_info_x = {
-        'CN': 1087,
-        'Global': 1128,
-        'JP': 1126
-    }
+
     img_possibles = {
         "activity_enter1": (1196, 195),
         "activity_enter2": (100, 149),
@@ -217,7 +203,7 @@ def to_activity(self, region, skip_first_screenshot=False, need_swipe=False):
         'purchase_ap_notice-localized': (919, 168),
         "plot_skip-plot-notice": (766, 520),
         "normal_task_help": (1017, 131),
-        "activity_task-info": (task_info_x[self.server], 141),
+        "activity_task-info": (1128, 141),
         "activity_play-guide": (1184, 152),
         'main_story_fight-confirm': (1168, 659),
         "main_story_episode-info": (917, 161),
@@ -280,6 +266,7 @@ def to_mission_task_info(self, number):
     if number in [6, 7]:
         self.swipe(916, 483, 916, 219, duration=0.5, post_sleep_time=0.7)
     if number in [8, 9, 10, 11, 12]:
+        self.swipe(943, 680, 943, 0, duration=0.1, post_sleep_time=0.7)
         self.swipe(943, 680, 943, 0, duration=0.1, post_sleep_time=0.7)
     possibles = {'activity_menu': (1124, lo[index[number - 1]])}
     ends = "activity_task-info"

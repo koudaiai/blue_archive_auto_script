@@ -28,7 +28,7 @@ def judge_use_invitation_ticket(self, cafe_no=1):
     self.logger.info(f"Next usable time     :{invitation_ticket_next_usable_time}")
     self.logger.info(f"Nearest expected time:{nearest_time}")
     if invitation_ticket_next_usable_time > nearest_time:
-        if (invitation_ticket_next_usable_time - nearest_time).seconds < 3 * 3600:
+        if (invitation_ticket_next_usable_time - nearest_time).seconds < 9 * 3600:
             if flag:
                 self.logger.info(f"Use Invitation Ticket.")
                 return True
@@ -40,4 +40,4 @@ def judge_use_invitation_ticket(self, cafe_no=1):
 
 def delay_cafe_reward_execution_time(self):
     self.logger.info("Refresh cafe_reward schedule.")
-    self.scheduler.systole("cafe_reward", 0)
+    self.scheduler.systole("cafe_reward", 0, True)
