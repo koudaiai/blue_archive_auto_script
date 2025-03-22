@@ -35,7 +35,7 @@ def judge_use_invitation_ticket(self, cafe_no=1):
             else:
                 self.logger.info(f"Use Invitation Ticket After Cool Down.")
                 self.next_time = invitation_ticket_cool_time
-    return False
+    return True
 
 
 def delay_cafe_reward_execution_time(self):
