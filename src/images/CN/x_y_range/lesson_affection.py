@@ -38,6 +38,7 @@ x_y_range = {
     "Iori": [],
     "Iroha": [],
     "Izumi": [],
+    "Izuna(Swimsuit)": [],
     "Izuna": [],
     "Junko (New Year)": [],
     "Kaede": [],
