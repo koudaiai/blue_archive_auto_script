@@ -3384,9 +3384,9 @@ STATIC_DEFAULT_CONFIG = '''
         ]
     },
     "current_game_activity": {
-        "CN": "OnYourMarkAtMillenniumKivotosHaloFestival",
+        "CN": "InSearchOfAHiddenHeritageTrinity'sExtracurricularActivities",
         "Global": "SerenadePromenade",
-        "JP": "FromOpera0068WithLove"
+        "JP": "JP_2025_04_22"
     },
     "dailyGameActivity": {
         "CN": null,
