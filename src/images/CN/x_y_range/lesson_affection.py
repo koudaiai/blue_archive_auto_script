@@ -49,6 +49,7 @@ x_y_range = {
     "Koharu": [],
     "Kotama": [],
     "Maki": [],
+    "Mashiro": [],
     "Mashiro (Swimsuit)": [],
     "Megu": [],
     "Midori": [],
