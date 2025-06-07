@@ -3384,9 +3384,9 @@ STATIC_DEFAULT_CONFIG = '''
         ]
     },
     "current_game_activity": {
-        "CN": "InSearchOfAHiddenHeritageTrinity'sExtracurricularActivities",
-        "Global": "SerenadePromenade",
-        "JP": "JP_2025_04_22"
+        "CN": "TripTrapTrain",
+        "Global": "SunlightGirlsNightSong",
+        "JP": "iveAlive"
     },
     "dailyGameActivity": {
         "CN": null,
