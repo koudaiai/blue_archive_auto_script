@@ -640,7 +640,6 @@ class Baas_thread:
             'normal_task_task-operating-round-over-notice': (888, 163),
             'momo_talk_momotalk-peach': (1123, 122),
             'cafe_students-arrived': (922, 189),
-            'cafe_quick-home': (1236, 31),
             'pass_menu': (1247, 40),
             'pass_mission-menu': (1247, 40),
             'group_sign-up-reward': (920, 159),
@@ -745,14 +744,14 @@ class Baas_thread:
         if is_main_page:
             region = {
                 'CN': (485, 23, 586, 54),
-                'Global': (485, 23, 586, 54),
+                'Global': (536, 26, 619, 44),
                 'JP': (536, 26, 619, 44)
             }
             region = region[self.server]
         else:
             region = {
                 'CN': (530, 10, 642, 40),
-                'Global': (530, 10, 642, 40),
+                'Global': (502, 13, 612, 33),
                 'JP': (502, 13, 612, 33)
             }
             region = region[self.server]
@@ -794,7 +793,7 @@ class Baas_thread:
             }
         else:
             region = {
-                "CN": (961, 10, 1072, 40),
+                "CN": (965, 10, 1070, 40),
                 "Global": (961, 10, 1072, 40),
                 "JP": (932, 13, 1069, 33)
             }
@@ -828,7 +827,7 @@ class Baas_thread:
             }
         else:
             region = {
-                'CN': (769, 10, 908, 40),
+                'CN': (745, 10, 912, 40),
                 'Global': (741, 10, 912, 40),
                 'JP': (714, 13, 859, 33)
             }

@@ -383,6 +383,11 @@ DEFAULT_CONFIG = """
     "push_json":"",
     "push_serverchan":"",
     "push_feishu": "",
+    "push_wecom": "",
+    "push_telegram_bot_token": "",
+    "push_telegram_chat_id": "",
+    "push_telegram_proxy": "",
+    "push_telegram_api": "",
     "cafe_reward_affection_pat_round": 4,
     "cafe_reward_lowest_affection_first": true,
     "cafe_reward_invite1_criterion" : "starred",
@@ -418,6 +423,7 @@ DEFAULT_CONFIG = """
     "lesson_favorStudent": ["Aris (Maid)", "Aris"],
     "lesson_relationship_first": false,
     "lesson_each_region_object_priority": [
+        ["primary","normal","advanced","superior"],
         ["primary","normal","advanced","superior"],
         ["primary","normal","advanced","superior"],
         ["primary","normal","advanced","superior"],
@@ -614,7 +620,7 @@ STATIC_DEFAULT_CONFIG = '''
     "main_story_final_episode_num": 6,
     "main_story_available_episodes": {
         "CN": [1, 2, 3, 4, 5, 6, 7, 8],
-        "Global": [1, 2, 3, 4, 5, 6, 7, 8, 9],
+        "Global": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
         "JP": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
     },
     "max_region": {
@@ -713,13 +719,14 @@ STATIC_DEFAULT_CONFIG = '''
             ["宫子神明文字x5", 50], ["静子神明文字x5",50], ["真白神明文字x5",50], ["纱绫神明文字x5",50],
             ["风香神明文字x5",50], ["歌原神明文字x5",50], ["30AP", 15], ["60AP", 30],
             ["初级经验书x5", 5], ["中级经验书x10", 25], ["高级经验书x3", 60], ["特级经验书x1", 100],
-            ["信用点x5k", 4], ["信用点x5k", 20],["信用点x75k", 60],["信用点x125k", 10]
+            ["信用点x5k", 4], ["信用点x5k", 20],["信用点x75k", 60],["信用点x125k", 100]
         ],
         "Global": [
+             ["30AP", 15],["60AP", 30],["美游神明文字x5",50],
              ["宫子神明文字x5",50],["静子神明文字x5",50],["真白神明文字x5",50],["纱绫神明文字x5",50],
-             ["风香神明文字x5",50],["歌原神明文字x5",50],["30AP", 15],["60AP", 30],
+             ["风香神明文字x5",50],["歌原神明文字x5",50],
              ["初级经验书x5", 5],["中级经验书x10", 25],["高级经验书x3", 60],["特级经验书x1", 100],
-             ["信用点x5k", 4],["信用点x5k", 20],["信用点x75k", 60],["信用点x125k", 10]
+             ["信用点x5k", 4],["信用点x5k", 20],["信用点x75k", 60],["信用点x125k", 100]
         ],
         "JP": [
              ["30AP", 15], ["60AP", 30], ["美游神明文字x5", 50],  ["宫子神明文字x5", 50],
@@ -3505,7 +3512,8 @@ STATIC_DEFAULT_CONFIG = '''
           "Hyakkiyako Central Area",
           "D.U. Shiratori City",
           "Shanhaijing Main Special Zone",
-          "Haruhabara Electric Town"
+          "Haruhabara Electric Town",
+          "Wildhunt Integrated Arts District"
       ],
       "Global_zh-tw": [
           "夏萊辦公室",
@@ -3513,12 +3521,13 @@ STATIC_DEFAULT_CONFIG = '''
           "格黑娜學園中央區",
           "阿拜多斯高中",
           "千年研究區域",
-          "三一廣場臨",
+          "三一廣場",
           "赤冬聯邦學園",
           "百鬼夜行中心部",
           "D.U.白鳥區",
           "山海經中央特區",
-          "春葉原"
+          "春葉原",
+          "狂獵綜合藝術區"
       ],
       "Global_ko-kr": [
             "살레 업무관",
@@ -3531,7 +3540,8 @@ STATIC_DEFAULT_CONFIG = '''
             "백귀야행 중심부",
             "D.U.시라토리구",
             "산해경 중앙특구",
-            "하루하바라 전자상가"
+            "하루하바라 전자상가",
+            "와일드헌트 종합 예술 지구"
       ],
       "JP": [
           "シャーレオフィス",
@@ -3549,8 +3559,8 @@ STATIC_DEFAULT_CONFIG = '''
         ]
     },
     "current_game_activity": {
-        "CN": "PlayBallAimforaGrandSlamHomeRun",
-        "Global": "SecretMidnightParty",
+        "CN": "SayBing",
+        "Global": "HighlanderRailroadExplosionIncident",
         "JP": "HighlanderRailroadExplosionIncident"
     },
     "dailyGameActivity": {
