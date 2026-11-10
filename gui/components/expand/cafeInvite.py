@@ -1,7 +1,6 @@
 """咖啡厅邀请配置的响应式双卡布局。"""
 from __future__ import annotations
 
-import re
 from functools import partial
 
 from PyQt5.QtCore import Qt, QPointF, QRectF
@@ -94,17 +93,6 @@ def _tune_combo(combo: CafeComboBox, item_count: int = 0) -> None:
     visible = 10 if item_count > 10 else max(item_count, 1)
     combo.setMaxVisibleItems(visible)
     combo.setMinimumHeight(34)
-
-
-_KANA_RE = re.compile(r"[\u3040-\u30ff]")
-
-
-def _has_chinese_name(name: str) -> bool:
-    """国服是否已有译名：名字里不含假名。
-
-    SchaleDB 对国服还没有译名的角色只给日文原名（如 ラナ），这类直接跳过。
-    """
-    return bool(name) and not _KANA_RE.search(name)
 
 
 def _cafe_bg() -> str:
@@ -355,27 +343,19 @@ class Layout(QWidget):
         except Exception:
             students = []
         mode = getattr(self.config, "server_mode", "CN")
-        # 名单按 DefaultOrder 倒序（新角色在前）。国服额外把「尚未实装但已有中文译名」
-        # 的角色排在后面，方便找到一个已经上线、但 SchaleDB 标记还没跟上的角色；
-        # 只有日文名的（国服没有译名）直接跳过。
-        released, pending = [], []
+        # 名单按 DefaultOrder 倒序（新角色在前）。实装标记不可靠 —— SchaleDB 记录的
+        # 国服进度落后于游戏实际（例如 未花(泳装) 已上线却仍标未实装），所以不再按
+        # implementation 过滤，全部列出来；同名条目只保留一个。
         for student in students:
             try:
                 name = student.get(mode + "_name") or ""
-                if not name:
+                if not name or name in self.student_name:
                     continue
-                if student.get(mode + "_implementation"):
-                    released.append(name)
-                    if not bt.isChinese():
-                        bt.addStudent(student.get("CN_name") or name, name)
-                elif mode == "CN" and _has_chinese_name(student.get("CN_name") or name):
-                    pending.append(name)
+                self.student_name.append(name)
+                if not bt.isChinese():
+                    bt.addStudent(student.get("CN_name") or name, name)
             except Exception:
                 continue
-        for name in released + pending:
-            if name in self.student_name:  # 名单里可能有同名条目，去重
-                continue
-            self.student_name.append(name)
 
         self.pat_round = self.config.get("cafe_reward_affection_pat_round")
         self.pat_styles = [bt.tr("ConfigTranslation", "拖动礼物")]
