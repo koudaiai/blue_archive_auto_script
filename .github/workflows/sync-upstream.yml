@@ -1,7 +1,8 @@
 name: Sync upstream (pur1fying)
 
 # 把原仓库 pur1fying/blue_archive_auto_script 的 master 自动合并进本 fork 的分支。
-# 冲突时不做任何破坏性操作：放弃本次合并、保持分支原状，并开/更新一个 issue 提醒手动处理。
+# 冲突时不做任何破坏性操作：放弃本次合并、保持分支原状，并在【本 fork】开/更新 issue
+# 提醒手动处理（GITHUB_TOKEN 只有本仓库权限，不会也不能往上游仓库写东西）。
 
 on:
   schedule:
@@ -89,10 +90,16 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 显式锁定仓库：issue 只会在本 fork 里创建，不会碰到上游仓库
+          GH_REPO: ${{ github.repository }}
           BRANCH: ${{ matrix.branch }}
           FILES: ${{ steps.merge.outputs.files }}
         run: |
           set -euo pipefail
+          if [ "${GH_REPO}" != "koudaiai/blue_archive_auto_script" ]; then
+            echo "::error::当前仓库是 ${GH_REPO}，与预期 fork 不一致，跳过创建 issue"
+            exit 0
+          fi
           title="上游同步冲突：${BRANCH}"
           body_file=$(mktemp)
           {
@@ -113,11 +120,12 @@ jobs:
             echo "处理完关闭本 issue 即可；下次同步成功时也会自动关闭。"
           } > "$body_file"
 
-          existing=$(gh issue list --state open --search "${title} in:title" --limit 1 --json number --jq '.[0].number // ""')
+          existing=$(gh issue list --repo "$GH_REPO" --state open \
+            --search "${title} in:title" --limit 1 --json number --jq '.[0].number // ""')
           if [ -n "$existing" ]; then
-            gh issue comment "$existing" --body-file "$body_file"
+            gh issue comment "$existing" --repo "$GH_REPO" --body-file "$body_file"
           else
-            gh issue create --title "$title" --body-file "$body_file"
+            gh issue create --repo "$GH_REPO" --title "$title" --body-file "$body_file"
           fi
 
       - name: Close stale conflict issue
@@ -125,11 +133,16 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           BRANCH: ${{ matrix.branch }}
         run: |
           set -uo pipefail
+          if [ "${GH_REPO}" != "koudaiai/blue_archive_auto_script" ]; then
+            exit 0
+          fi
           title="上游同步冲突：${BRANCH}"
-          number=$(gh issue list --state open --search "${title} in:title" --limit 1 --json number --jq '.[0].number // ""')
+          number=$(gh issue list --repo "$GH_REPO" --state open \
+            --search "${title} in:title" --limit 1 --json number --jq '.[0].number // ""')
           if [ -n "$number" ]; then
-            gh issue close "$number" --comment "本次同步已成功，自动关闭。"
+            gh issue close "$number" --repo "$GH_REPO" --comment "本次同步已成功，自动关闭。"
           fi
