@@ -343,18 +343,14 @@ class Layout(QWidget):
         except Exception:
             students = []
         mode = getattr(self.config, "server_mode", "CN")
-        # 名单数据源（SchaleDB data/*/students.json）停在 2024-08，国服实装标记早已过期，
-        # 例如 白子＊恐怖 标记为未实装、但国服实际已上线。国服不按该标记过滤，
-        # 否则下拉框会缺掉一批已经能邀请的角色。
-        ignore_implementation = mode == "CN"
         for student in students:
             try:
                 name = student.get(mode + "_name") or ""
                 if not name:
                     continue
-                if not ignore_implementation and not student.get(mode + "_implementation"):
+                if not student.get(mode + "_implementation"):
                     continue
-                if name in self.student_name:
+                if name in self.student_name:  # 名单里可能有同名条目，去重
                     continue
                 self.student_name.append(name)
                 if not bt.isChinese():
