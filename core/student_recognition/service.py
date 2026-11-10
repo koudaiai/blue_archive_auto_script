@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -13,6 +14,37 @@ from core.student_recognition.recognizer import StudentRecognizer
 from core.student_recognition.types import LessonCard
 
 
+# 识别相似度门槛：低于该值一律不点击（宁可不点，也不要点错）。
+# 依据：用 65 张真实游戏头像模板回归，正确样本最低 0.761，唯一一次误认 0.747。
+DEFAULT_MIN_SCORE = 0.75
+SETTINGS_FILE = Path("config") / "student_recognition.json"
+
+
+def load_min_score(project_root: Path) -> float:
+    """读 config/student_recognition.json 的 min_score；文件不存在时按默认值创建。"""
+    path = project_root / SETTINGS_FILE
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return float(data.get("min_score", DEFAULT_MIN_SCORE))
+    except (OSError, ValueError):
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps(
+                    {
+                        "min_score": DEFAULT_MIN_SCORE,
+                        "_comment": "识别相似度门槛：低于该值不点击；填 0 表示不设门槛",
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+        except OSError:
+            pass
+        return DEFAULT_MIN_SCORE
+
+
 class StudentRecognitionService:
     def __init__(
         self,
@@ -20,14 +52,18 @@ class StudentRecognitionService:
         project_root: Path,
         model_dir: Optional[Path] = None,
         catalog: Optional[StudentCatalog] = None,
+        min_score: Optional[float] = None,
     ):
         self.catalog = catalog if catalog is not None else StudentCatalog(student_rows)
         self.layout = FixedLessonLayout()
+        self.min_score = load_min_score(project_root) if min_score is None else float(min_score)
         self.load_error: Optional[str] = None
         self.recognition_error: Optional[str] = None
         try:
             resolved_model_dir = model_dir or ensure_model_files(project_root)
-            self.recognizer = StudentRecognizer(self.catalog, resolved_model_dir)
+            self.recognizer = StudentRecognizer(
+                self.catalog, resolved_model_dir, min_score=self.min_score
+            )
             if not self.recognizer.available:
                 self.load_error = "student model package is invalid"
         except ModelDownloadError as error:

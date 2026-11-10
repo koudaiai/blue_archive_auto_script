@@ -56,6 +56,8 @@ def main():
     service = StudentRecognitionService(rows, ROOT)
     print('名册身份数:', len(catalog.records), '| 模型可用:', service.available,
           '| load_error:', service.load_error)
+    print('相似度门槛 min_score:', service.min_score,
+          '（config/student_recognition.json 可改，0 = 不设门槛）')
     if not service.available:
         print('模型未就绪，往下的识别结果不可信')
 
@@ -79,9 +81,10 @@ def main():
         for avatar in card.avatars:
             pred = avatar.prediction
             if pred and pred.name:
+                flag = 'PASS' if pred.accepted else '低于门槛'
                 line = (f'  头像 slot{avatar.slot_index} 粉框={avatar.eligible} '
                         f'-> {pred.name} ({pred.student_id}) '
-                        f'score={pred.score:.3f} margin={pred.margin:.3f}')
+                        f'score={pred.score:.3f} margin={pred.margin:.3f} [{flag}]')
             else:
                 line = f'  头像 slot{avatar.slot_index} 粉框={avatar.eligible} -> 识别失败'
             print(line)

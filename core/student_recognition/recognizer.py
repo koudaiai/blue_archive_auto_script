@@ -14,9 +14,11 @@ from core.student_recognition.types import StudentPrediction
 class StudentRecognizer:
     """OpenCV ONNX inference with global per-identity Top-1 ranking."""
 
-    def __init__(self, catalog: StudentCatalog, model_dir: Path):
+    def __init__(self, catalog: StudentCatalog, model_dir: Path, min_score: float = 0.0):
         self.catalog = catalog
         self.model_dir = model_dir
+        self.min_score = float(min_score or 0.0)
+        self.local_gallery_count = 0
         self.net = None
         self.gallery_embeddings = np.empty((0, 128), dtype=np.float32)
         self.gallery_ids = np.empty((0,), dtype=str)
@@ -43,13 +45,59 @@ class StudentRecognizer:
                 raise ValueError("Invalid student gallery")
             if not set(ids).issubset(self.catalog.records):
                 raise ValueError("Gallery contains unknown student ids")
+            local_ids, local_embeddings = self._load_local_gallery(expected_width)
+            if len(local_ids):
+                ids = np.concatenate([ids, local_ids])
+                embeddings = np.vstack([embeddings, local_embeddings])
             embeddings /= np.maximum(np.linalg.norm(embeddings, axis=1, keepdims=True), 1e-12)
             self.gallery_embeddings = embeddings
             self.gallery_ids = ids
+            self.local_gallery_count = len(local_ids)
         except (OSError, ValueError, TypeError, KeyError, cv2.error, json.JSONDecodeError):
             self.net = None
             self.gallery_embeddings = np.empty((0, 128), dtype=np.float32)
             self.gallery_ids = np.empty((0,), dtype=str)
+
+    def encode_views(self, crops: Sequence[np.ndarray]) -> np.ndarray:
+        """把头像裁图编码成图库向量（每个裁图 5 个视角各一条，已 L2 归一化）。"""
+        width = int(self.metadata.get("embedding_size", 128))
+        empty = np.empty((0, width), dtype=np.float32)
+        if not crops or self.net is None:
+            return empty
+        try:
+            blob = np.stack(
+                [self._student_view(view) for crop in crops for view in self._portrait_views(crop)]
+            )
+            self.net.setInput(blob)
+            embeddings = np.asarray(self.net.forward(), dtype=np.float32)
+        except (cv2.error, ValueError, IndexError):
+            return empty
+        embeddings /= np.maximum(np.linalg.norm(embeddings, axis=1, keepdims=True), 1e-12)
+        return embeddings
+
+    def _load_local_gallery(self, expected_width: int) -> tuple[np.ndarray, np.ndarray]:
+        """加载本地追加的图库（local_gallery.npz），用于自行补充新角色。
+
+        官方 gallery.npz 受 SHA256SUMS 校验约束，不能直接改；本地追加文件独立存在，
+        内容为 {student_ids: [...], embeddings: (N, 128)}，id 必须在名册里。
+        """
+        path = self.model_dir / "local_gallery.npz"
+        if not path.is_file():
+            return np.empty((0,), dtype=str), np.empty((0, expected_width), dtype=np.float32)
+        try:
+            data = np.load(path, allow_pickle=False)
+            embeddings = np.asarray(data["embeddings"], dtype=np.float32)
+            ids = np.asarray(data["student_ids"]).astype(str)
+        except (OSError, ValueError, KeyError):
+            return np.empty((0,), dtype=str), np.empty((0, expected_width), dtype=np.float32)
+        if (
+            embeddings.ndim != 2
+            or embeddings.shape[1] != expected_width
+            or len(ids) != len(embeddings)
+            or not set(ids).issubset(self.catalog.records)
+        ):
+            return np.empty((0,), dtype=str), np.empty((0, expected_width), dtype=np.float32)
+        return ids, embeddings
 
     def identify(
         self,
@@ -98,7 +146,7 @@ class StudentRecognizer:
                 self.catalog.records[sid].canonical_name,
                 score,
                 margin,
-                True,
+                bool(score >= self.min_score),
             )
         return predictions
 
