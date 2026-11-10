@@ -2,6 +2,7 @@ import cv2
 import time
 import queue
 import threading
+import unicodedata
 
 import numpy as np
 
@@ -440,8 +441,7 @@ def invite_girl(self, no=1):
                     candidates=''
                 )
                 detected_name.append(res)
-                res = operate_name(res)
-                if res == target_name:
+                if is_same_student_name(res, target_name):
                     self.logger.info("Find Target Student [ " + target_name + " ]")
                     if not checkConfirmInvite(self, p[1] + 10):
                         stop_flag = True
@@ -507,30 +507,62 @@ def find_k_b_of_point1_and_point2(point1, point2):
     return k, b
 
 
-# replace special characters in name and return lower case
+# 名字模糊匹配：按顺序相同的字数达到该值，即认为是同一学生
+NAME_FUZZY_MIN_SAME_CHARS = 4
+
+
+# remove special characters in name and return lower case
 def operate_name(name):
-    name = name.replace(" ", "")
-    name = name.replace(",", "")
-    name = name.replace("，", "")
-    name = name.replace("。", "")
-    name = name.replace(".", "")
-    name = name.replace("(", "")
-    name = name.replace(")", "")
-    name = name.replace("（", "")
-    name = name.replace("）", "")
-    name = name.replace("[", "")
-    name = name.replace("]", "")
-    name = name.replace("【", "")
-    name = name.replace("】", "")
-    name = name.replace("{", "")
-    name = name.replace("}", "")
+    """把学生名规范化，用于 OCR 结果与配置中的学生名比较。
+
+    - NFKC 规范化：全角 -> 半角（＊ -> *、（ -> ( 等）
+    - 丢弃所有非字母数字字符（空格、括号、＊ 等分隔符与标点）
+    - 英文统一小写，中文/日文原样保留
+    """
+    if not name:
+        return ""
+    name = unicodedata.normalize("NFKC", name)
     ret = ""
     for i in range(0, len(name)):
-        if is_english(name[i]):
-            ret += name[i].lower()
+        ch = name[i]
+        if not ch.isalnum():
+            continue
+        if is_english(ch):
+            ret += ch.lower()
         else:
-            ret += name[i]
+            ret += ch
     return ret
+
+
+def same_char_length(name1, name2):
+    """按顺序相同的字数（最长公共子序列长度，允许中间夹着错字）。"""
+    if not name1 or not name2:
+        return 0
+    prev = [0] * (len(name2) + 1)
+    for ch1 in name1:
+        cur = [0]
+        for j in range(0, len(name2)):
+            if ch1 == name2[j]:
+                cur.append(prev[j] + 1)
+            else:
+                cur.append(max(prev[j + 1], cur[j]))
+        prev = cur
+    return prev[-1]
+
+
+def is_same_student_name(ocr_name, target_name):
+    """比较 OCR 识别名与目标学生名。
+
+    完全一致直接通过；否则只要按顺序相同的字达到 4 个就认为是同一学生，
+    用于容忍 OCR 把 白子＊恐怖 识别成 白子水恐怖 这类错字。
+    """
+    ocr_name = operate_name(ocr_name)
+    target_name = operate_name(target_name)
+    if not ocr_name or not target_name:
+        return False
+    if ocr_name == target_name:
+        return True
+    return same_char_length(ocr_name, target_name) >= NAME_FUZZY_MIN_SAME_CHARS
 
 
 def operate_student_name(names):
