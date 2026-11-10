@@ -1,0 +1,148 @@
+name: Sync upstream (pur1fying)
+
+# 把原仓库 pur1fying/blue_archive_auto_script 的 master 自动合并进本 fork 的分支。
+# 冲突时不做任何破坏性操作：放弃本次合并、保持分支原状，并在【本 fork】开/更新 issue
+# 提醒手动处理（GITHUB_TOKEN 只有本仓库权限，不会也不能往上游仓库写东西）。
+
+on:
+  schedule:
+    - cron: "17 19 * * *" # 每天 03:17 (UTC+8)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_URL: https://github.com/pur1fying/blue_archive_auto_script.git
+  UPSTREAM_BRANCH: master
+
+jobs:
+  sync:
+    if: github.repository == 'koudaiai/blue_archive_auto_script'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - branch: master
+          - branch: fix/cafe-invite-fuzzy-name
+    steps:
+      - name: Checkout ${{ matrix.branch }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.branch }}
+          fetch-depth: 0
+
+      - name: Merge upstream into ${{ matrix.branch }}
+        id: merge
+        shell: bash
+        run: |
+          set -uo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git remote add upstream "$UPSTREAM_URL" 2>/dev/null || git remote set-url upstream "$UPSTREAM_URL"
+          if ! git fetch --no-tags upstream "$UPSTREAM_BRANCH"; then
+            echo "::error::拉取上游失败"
+            echo "status=fetch-failed" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if git merge-base --is-ancestor FETCH_HEAD HEAD; then
+            echo "已经是最新，无需合并"
+            echo "status=up-to-date" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if git merge --no-edit -m "chore: sync upstream pur1fying/blue_archive_auto_script" FETCH_HEAD; then
+            if git push origin "HEAD:${{ matrix.branch }}"; then
+              echo "status=merged" >> "$GITHUB_OUTPUT"
+            else
+              echo "::error::合并成功但推送失败（检查 Actions 的 Workflow permissions 是否为 Read and write）"
+              echo "status=push-failed" >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
+          fi
+
+          # 冲突：记录冲突文件后放弃本次合并，分支保持原状
+          files=$(git diff --name-only --diff-filter=U | paste -sd ', ' -)
+          git merge --abort || true
+          echo "status=conflict" >> "$GITHUB_OUTPUT"
+          echo "files=$files" >> "$GITHUB_OUTPUT"
+          echo "::warning::与上游冲突，已放弃本次自动合并：$files"
+          {
+            echo "### 同步冲突：${{ matrix.branch }}"
+            echo ""
+            echo "冲突文件：\`$files\`"
+            echo ""
+            echo "已放弃合并，分支未改动，正在运行的代码不受影响。"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+
+      - name: Report conflict
+        if: steps.merge.outputs.status == 'conflict'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 显式锁定仓库：issue 只会在本 fork 里创建，不会碰到上游仓库
+          GH_REPO: ${{ github.repository }}
+          BRANCH: ${{ matrix.branch }}
+          FILES: ${{ steps.merge.outputs.files }}
+        run: |
+          set -euo pipefail
+          if [ "${GH_REPO}" != "koudaiai/blue_archive_auto_script" ]; then
+            echo "::error::当前仓库是 ${GH_REPO}，与预期 fork 不一致，跳过创建 issue"
+            exit 0
+          fi
+          title="上游同步冲突：${BRANCH}"
+          body_file=$(mktemp)
+          {
+            echo "上游 \`pur1fying/blue_archive_auto_script\` 有更新，但自动合并 \`${BRANCH}\` 时冲突。"
+            echo ""
+            echo "**已放弃本次合并，分支保持原状**，正在运行的代码不受影响。"
+            echo ""
+            echo "冲突文件：\`${FILES}\`"
+            echo ""
+            echo "本机手动解决："
+            echo '```bash'
+            echo "git fetch https://github.com/pur1fying/blue_archive_auto_script.git master"
+            echo "git checkout ${BRANCH}"
+            echo "git merge FETCH_HEAD     # 解决冲突后 commit"
+            echo "git push origin ${BRANCH}"
+            echo '```'
+            echo ""
+            echo "处理完关闭本 issue 即可；下次同步成功时也会自动关闭。"
+          } > "$body_file"
+
+          existing=$(gh issue list --repo "$GH_REPO" --state open \
+            --search "${title} in:title" --limit 1 --json number --jq '.[0].number // ""')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GH_REPO" --body-file "$body_file"
+          else
+            gh issue create --repo "$GH_REPO" --title "$title" --body-file "$body_file"
+          fi
+
+      - name: Close stale conflict issue
+        if: steps.merge.outputs.status == 'merged' || steps.merge.outputs.status == 'up-to-date'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          BRANCH: ${{ matrix.branch }}
+        run: |
+          set -uo pipefail
+          if [ "${GH_REPO}" != "koudaiai/blue_archive_auto_script" ]; then
+            exit 0
+          fi
+          title="上游同步冲突：${BRANCH}"
+          number=$(gh issue list --repo "$GH_REPO" --state open \
+            --search "${title} in:title" --limit 1 --json number --jq '.[0].number // ""')
+          if [ -n "$number" ]; then
+            gh issue close "$number" --repo "$GH_REPO" --comment "本次同步已成功，自动关闭。"
+          fi
