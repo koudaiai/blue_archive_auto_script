@@ -51,7 +51,11 @@ def normalize_name(name):
 
 
 def build_student_names(students_by_server):
-    """按 Id 合并三服数据，生成 student_names 列表（新角色在前）。"""
+    """按 Id 合并三服数据，生成 student_names 列表。
+
+    排序沿用游戏内的 DefaultOrder（0 = 最早实装的 爱露），倒序 = 新角色在前，
+    与旧版本名单顺序一致。
+    """
     ids = set()
     for data in students_by_server.values():
         ids.update(data.keys())
@@ -59,17 +63,19 @@ def build_student_names(students_by_server):
     entries = []
     for student_id in ids:
         item = {}
+        order = 0
         for prefix, server, released_index in SERVERS:
             student = students_by_server[server].get(student_id) or {}
             name = normalize_name(student.get("Name") or "")
             item[prefix + "_name"] = name
             released = student.get("IsReleased") or [False, False, False]
             item[prefix + "_implementation"] = bool(name) and bool(released[released_index])
-        entries.append((int(student_id), item))
+            if student.get("DefaultOrder") is not None:
+                order = student["DefaultOrder"]
+        entries.append((order, int(student_id), item))
 
-    # 新角色（Id 大）排在前面，和旧版本的顺序保持一致
-    entries.sort(key=lambda x: x[0], reverse=True)
-    return [entry for _, entry in entries]
+    entries.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    return [entry for _, _, entry in entries]
 
 
 def find_array_end(text, start):
