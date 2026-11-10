@@ -45,7 +45,11 @@ class StudentCatalog:
 
     def resolve(self, name: str) -> Optional[StudentRecord]:
         sid = self._aliases.get(name.strip().casefold())
-        return self.records.get(sid) if sid else None
+        if sid:
+            return self.records.get(sid)
+        # 兜底：旧配置里沿用模板图的写法（如 Shiroko(Swimsuit) 少了空格），
+        # 按 slug 再匹配一次，避免老配置失效
+        return self.records.get(student_id(name))
 
     def record(self, sid: str) -> Optional[StudentRecord]:
         return self.records.get(sid)
