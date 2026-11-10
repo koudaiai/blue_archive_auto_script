@@ -136,6 +136,7 @@ class Layout(QWidget):
         self.workers = []
 
         self.REPO_URL_NAME_mapping = {
+            "https://github.com/koudaiai/blue_archive_auto_script.git": self.tr("GitHub (自改分支)"),
             "https://github.com/pur1fying/blue_archive_auto_script.git": self.tr("GitHub (主仓库)"),
             "https://gitee.com/pur1fy/blue_archive_auto_script.git": self.tr("Gitee (国内镜像)"),
             "https://gitcode.com/m0_74686738/blue_archive_auto_script.git": self.tr("GitCode (国内镜像)"),
@@ -143,6 +144,7 @@ class Layout(QWidget):
         }
         self._revert_REPO_URL_NAME_mapping = {v: k for k, v in self.REPO_URL_NAME_mapping.items()}
         self.REPO_URL_CHECK_UPDATE_METHOD_mapping = {
+            "https://github.com/koudaiai/blue_archive_auto_script.git": "github",
             "https://github.com/pur1fying/blue_archive_auto_script.git": "github",
             "https://gitee.com/pur1fy/blue_archive_auto_script.git": "gitee",
             "https://gitcode.com/m0_74686738/blue_archive_auto_script.git": "gitcode",

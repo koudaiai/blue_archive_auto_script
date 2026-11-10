@@ -1,6 +1,7 @@
 from enum import Enum, auto
 
-REPO_BRANCH = "master"
+# 更新追踪的分支：koudaiai fork 上的自改分支
+REPO_BRANCH = "fix/cafe-invite-fuzzy-name"
 
 class GetShaMethod(Enum):
     GITHUB_API = auto()
@@ -12,7 +13,7 @@ get_remote_sha_methods = [
     {
         "name": "github",
         "method": GetShaMethod.GITHUB_API,
-        "owner": "pur1fying",
+        "owner": "koudaiai",
         "repo": "blue_archive_auto_script",
         "branch": REPO_BRANCH,
     },
