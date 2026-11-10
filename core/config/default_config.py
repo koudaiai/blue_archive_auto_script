@@ -383,6 +383,11 @@ DEFAULT_CONFIG = """
     "push_json":"",
     "push_serverchan":"",
     "push_feishu": "",
+    "push_wecom": "",
+    "push_telegram_bot_token": "",
+    "push_telegram_chat_id": "",
+    "push_telegram_proxy": "",
+    "push_telegram_api": "",
     "cafe_reward_affection_pat_round": 4,
     "cafe_reward_lowest_affection_first": true,
     "cafe_reward_invite1_criterion" : "starred",
@@ -418,6 +423,7 @@ DEFAULT_CONFIG = """
     "lesson_favorStudent": ["Aris (Maid)", "Aris"],
     "lesson_relationship_first": false,
     "lesson_each_region_object_priority": [
+        ["primary","normal","advanced","superior"],
         ["primary","normal","advanced","superior"],
         ["primary","normal","advanced","superior"],
         ["primary","normal","advanced","superior"],
@@ -614,7 +620,7 @@ STATIC_DEFAULT_CONFIG = '''
     "main_story_final_episode_num": 6,
     "main_story_available_episodes": {
         "CN": [1, 2, 3, 4, 5, 6, 7, 8],
-        "Global": [1, 2, 3, 4, 5, 6, 7, 8, 9],
+        "Global": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
         "JP": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
     },
     "max_region": {
@@ -716,8 +722,9 @@ STATIC_DEFAULT_CONFIG = '''
             ["信用点x5k", 4], ["信用点x5k", 20],["信用点x75k", 60],["信用点x125k", 100]
         ],
         "Global": [
+             ["30AP", 15],["60AP", 30],["美游神明文字x5",50],
              ["宫子神明文字x5",50],["静子神明文字x5",50],["真白神明文字x5",50],["纱绫神明文字x5",50],
-             ["风香神明文字x5",50],["歌原神明文字x5",50],["30AP", 15],["60AP", 30],
+             ["风香神明文字x5",50],["歌原神明文字x5",50],
              ["初级经验书x5", 5],["中级经验书x10", 25],["高级经验书x3", 60],["特级经验书x1", 100],
              ["信用点x5k", 4],["信用点x5k", 20],["信用点x75k", 60],["信用点x125k", 100]
         ],
@@ -3505,7 +3512,8 @@ STATIC_DEFAULT_CONFIG = '''
           "Hyakkiyako Central Area",
           "D.U. Shiratori City",
           "Shanhaijing Main Special Zone",
-          "Haruhabara Electric Town"
+          "Haruhabara Electric Town",
+          "Wildhunt Integrated Arts District"
       ],
       "Global_zh-tw": [
           "夏萊辦公室",
@@ -3513,12 +3521,13 @@ STATIC_DEFAULT_CONFIG = '''
           "格黑娜學園中央區",
           "阿拜多斯高中",
           "千年研究區域",
-          "三一廣場臨",
+          "三一廣場",
           "赤冬聯邦學園",
           "百鬼夜行中心部",
           "D.U.白鳥區",
           "山海經中央特區",
-          "春葉原"
+          "春葉原",
+          "狂獵綜合藝術區"
       ],
       "Global_ko-kr": [
             "살레 업무관",
@@ -3531,7 +3540,8 @@ STATIC_DEFAULT_CONFIG = '''
             "백귀야행 중심부",
             "D.U.시라토리구",
             "산해경 중앙특구",
-            "하루하바라 전자상가"
+            "하루하바라 전자상가",
+            "와일드헌트 종합 예술 지구"
       ],
       "JP": [
           "シャーレオフィス",
@@ -3549,8 +3559,8 @@ STATIC_DEFAULT_CONFIG = '''
         ]
     },
     "current_game_activity": {
-        "CN": "HighlanderRailroadExplosionIncident",
-        "Global": "SecretMidnightParty",
+        "CN": "SayBing",
+        "Global": "HighlanderRailroadExplosionIncident",
         "JP": "HighlanderRailroadExplosionIncident"
     },
     "dailyGameActivity": {
@@ -3632,7 +3642,7 @@ STATIC_DEFAULT_CONFIG = '''
       "JP_name": "シロコ＊テラー"
     },
     {
-      "CN_name": "星野(临战)",
+      "CN_name": "星野(武装)",
       "Global_name": "Hoshino (Battle)",
       "JP_name": "ホシノ(臨戦)"
     },
@@ -3652,7 +3662,7 @@ STATIC_DEFAULT_CONFIG = '''
       "JP_name": "フブキ(水着)"
     },
     {
-      "CN_name": "叶渚(泳装)",
+      "CN_name": "康娜(泳装)",
       "Global_name": "Kanna (Swimsuit)",
       "JP_name": "カンナ(水着)"
     },
@@ -3667,7 +3677,7 @@ STATIC_DEFAULT_CONFIG = '''
       "JP_name": "ミドリ(メイド)"
     },
     {
-      "CN_name": "桃井(女仆)",
+      "CN_name": "桃(女仆)",
       "Global_name": "Momoi (Maid)",
       "JP_name": "モモイ(メイド)"
     },
@@ -3677,7 +3687,7 @@ STATIC_DEFAULT_CONFIG = '''
       "JP_name": "キララ"
     },
     {
-      "CN_name": "爱莉(乐队)",
+      "CN_name": "爱理(乐队)",
       "Global_name": "Airi (Band)",
       "JP_name": "アイリ(バンド)"
     },
@@ -3702,12 +3712,12 @@ STATIC_DEFAULT_CONFIG = '''
       "JP_name": "ウミカ"
     },
     {
-      "CN_name": "明里(正月)",
+      "CN_name": "明里(新年)",
       "Global_name": "Akari (New Year)",
       "JP_name": "アカリ(正月)"
     },
     {
-      "CN_name": "阿露(礼服)",
+      "CN_name": "爱露(礼服)",
       "Global_name": "Aru (Dress)",
       "JP_name": "アル(ドレス)"
     },
@@ -3762,7 +3772,7 @@ STATIC_DEFAULT_CONFIG = '''
       "JP_name": "レンゲ"
     },
     {
-      "CN_name": "紫草",
+      "CN_name": "紫",
       "Global_name": "Yukari",
       "JP_name": "ユカリ"
     },
@@ -3774,12 +3784,12 @@ STATIC_DEFAULT_CONFIG = '''
     {
       "CN_name": "食蜂操祈",
       "Global_name": "Shokuhou Misaki",
-      "JP_name": "食蜂操祈"
+      "JP_name": ""
     },
     {
       "CN_name": "御坂美琴",
       "Global_name": "Misaka Mikoto",
-      "JP_name": "御坂美琴"
+      "JP_name": ""
     },
     {
       "CN_name": "时雨(温泉)",
@@ -3797,7 +3807,7 @@ STATIC_DEFAULT_CONFIG = '''
       "JP_name": "イチカ"
     },
     {
-      "CN_name": "晴奈(运动服)",
+      "CN_name": "晴奈(体操服)",
       "Global_name": "Haruna (Track)",
       "JP_name": "ハルナ(体操服)"
     },
@@ -3812,7 +3822,7 @@ STATIC_DEFAULT_CONFIG = '''
       "JP_name": "モミジ"
     },
     {
-      "CN_name": "芽留",
+      "CN_name": "芽瑠",
       "Global_name": "Meru",
       "JP_name": "メル"
     },
@@ -3862,17 +3872,17 @@ STATIC_DEFAULT_CONFIG = '''
       "JP_name": "ミヤコ(水着)"
     },
     {
-      "CN_name": "实里",
+      "CN_name": "实梨",
       "Global_name": "Minori",
       "JP_name": "ミノリ"
     },
     {
-      "CN_name": "弥奈",
+      "CN_name": "南",
       "Global_name": "Mina",
       "JP_name": "ミナ"
     },
     {
-      "CN_name": "瑠美",
+      "CN_name": "瑠海",
       "Global_name": "Rumi",
       "JP_name": "ルミ"
     },
@@ -4960,6 +4970,56 @@ STATIC_DEFAULT_CONFIG = '''
       "CN_name": "真琴(泳装)",
       "Global_name": "Makoto (Swimsuit)",
       "JP_name": "マコト(水着)"
+    },
+    {
+      "CN_name": "ラナ",
+      "Global_name": "Rana",
+      "JP_name": ""
+    },
+    {
+      "CN_name": "アズサ(レーシング)",
+      "Global_name": "Azusa (Racing)",
+      "JP_name": ""
+    },
+    {
+      "CN_name": "ヒフミ(レーシング)",
+      "Global_name": "Hifumi (Racing)",
+      "JP_name": ""
+    },
+    {
+      "CN_name": "䌷",
+      "Global_name": "Tsumugi",
+      "JP_name": "ツムギ"
+    },
+    {
+      "CN_name": "艾莉娜",
+      "Global_name": "Erina",
+      "JP_name": "エリナ"
+    },
+    {
+      "CN_name": "安娜",
+      "Global_name": "Anna",
+      "JP_name": "アンナ"
+    },
+    {
+      "CN_name": "霞(泳装)",
+      "Global_name": "Kasumi (Swimsuit)",
+      "JP_name": "カスミ(水着)"
+    },
+    {
+      "CN_name": "琴音",
+      "Global_name": "Kotone",
+      "JP_name": "コトネ"
+    },
+    {
+      "CN_name": "心",
+      "Global_name": "Kokoro",
+      "JP_name": "ココロ"
+    },
+    {
+      "CN_name": "雪玲(泳装)",
+      "Global_name": "Shunling (Swimsuit)",
+      "JP_name": ""
     }
   ]
 }
