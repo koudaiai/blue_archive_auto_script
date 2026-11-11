@@ -75,7 +75,31 @@ def build_student_names(students_by_server):
         entries.append((order, int(student_id), item))
 
     entries.sort(key=lambda x: (x[0], x[1]), reverse=True)
-    return [entry for _, _, entry in entries]
+    # 别名（中/英/日任一）重复时只清掉冲突的那个别名，条目保留；
+    # 三个别名全部重复说明是同名同人的重复条目（如两个「星野（武装）」），才整条丢弃。
+    unique = []
+    used_aliases = set()
+    dropped = []
+    blanks = []
+    for _, _, entry in entries:
+        keys = ("CN_name", "Global_name", "JP_name")
+        present = [key for key in keys if entry[key]]
+        collision = [key for key in present if entry[key].casefold() in used_aliases]
+        if len(collision) == len(present):
+            dropped.append(entry["Global_name"] or entry["CN_name"])
+            continue
+        for key in collision:
+            blanks.append((entry["Global_name"] or entry["CN_name"], key, entry[key]))
+            entry[key] = ""
+        for key in present:
+            if entry[key]:
+                used_aliases.add(entry[key].casefold())
+        unique.append(entry)
+    if dropped:
+        print(f"丢弃完全重复的条目 {len(dropped)} 个: {dropped}")
+    if blanks:
+        print(f"清空冲突别名 {len(blanks)} 处: {blanks}")
+    return unique
 
 
 def find_array_end(text, start):

@@ -452,7 +452,12 @@ def invite_favor_student(self):
     from core.student_recognition import StudentCatalog, StudentRecognitionService
 
     self.logger.info("Lesson Inviting favor student.")
-    catalog = StudentCatalog(self.static_config.student_names)
+    try:
+        catalog = StudentCatalog(self.static_config.student_names)
+    except Exception as error:
+        # 名册异常（例如存在重复别名）时退回普通日程逻辑，不要让整个日程任务失败
+        self.logger.warning("Student roster is invalid, skip favor student: " + str(error))
+        return
     favor_student_list, unknown = catalog.validate_names(
         self.config.lesson_favorStudent
     )
