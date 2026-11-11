@@ -47,6 +47,20 @@ class U2Client:
     def get_connection(self):
         return self.connection
 
+    def reconnect(self):
+        """adb 通道断开（AdbError / RemoteDisconnected）后重建连接。
+
+        uiautomator2.connect 会重新执行 adb forward，模拟器重启或 adb server
+        被外部重启后，靠它把通道恢复，避免整条任务链直接中断。
+        """
+        U2Client.connections.pop(self.serial, None)
+        if ":" in self.serial:
+            self.connection = u2.connect(self.serial)
+        else:
+            self.connection = u2.connect_usb(self.serial)
+        U2Client.connections[self.serial] = self
+        return self.connection
+
 
 
 

@@ -7,8 +7,7 @@ def implement(self):
         return True
     cur_package = self.u2.app_current()['package']
     if cur_package != self.package_name:
-        if cur_package != self.package_name:
-            self.logger.warning("APP NOT RUNNING current package: " + cur_package)
+        self.logger.warning("APP NOT RUNNING current package: " + cur_package)
         start(self)
         return True
     self.logger.info("CHECK RESTART")

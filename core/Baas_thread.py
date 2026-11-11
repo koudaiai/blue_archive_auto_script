@@ -69,6 +69,32 @@ func_dict = {
 }
 
 
+# 判断异常是否属于「设备连接断了」这一类：adb 通道断开、adb forward 失败、
+# u2 的 HTTP 请求被对端关闭、socket 超时等。这类错误重连设备后重试通常能恢复。
+_CONNECTION_ERROR_MODULES = ("adbutils", "requests", "urllib3", "http", "socket")
+_CONNECTION_ERROR_NAMES = {
+    "AdbError",
+    "AdbConnectionError",
+    "ConnectionError",
+    "ConnectionResetError",
+    "ConnectionAbortedError",
+    "ProtocolError",
+    "RemoteDisconnected",
+    "Timeout",
+    "ReadTimeout",
+    "ConnectTimeout",
+}
+
+
+def is_device_connection_error(error: BaseException) -> bool:
+    for cls in type(error).__mro__:
+        if cls.__name__ in _CONNECTION_ERROR_NAMES:
+            return True
+        if cls.__module__.split(".")[0] in _CONNECTION_ERROR_MODULES:
+            return True
+    return False
+
+
 class Baas_thread:
 
     def __init__(self, config, logger_signal=None, button_signal=None, update_signal=None, exit_signal=None):
@@ -545,11 +571,18 @@ class Baas_thread:
                 if not self.deal_with_package_incorrect(pkg):
                     self.push_and_log_error_msg("Package Incorrect", "Failed to Restart Game when package incorrect")
                     return False
-            except Exception:
-                if self.flag_run:
-                    self.push_and_log_error_msg("Script Error Occurred", traceback.format_exc())
-                    return False
-                return True  # Human take over
+            except Exception as error:
+                if not self.flag_run:
+                    return True  # Human take over
+                if i < 2 and is_device_connection_error(error):
+                    self.logger.warning(
+                        "Device connection error: " + type(error).__name__ + " " + str(error)
+                    )
+                    if self.reconnect_device():
+                        self.logger.info("Device reconnected, retry task " + activity)
+                        continue
+                self.push_and_log_error_msg("Script Error Occurred", traceback.format_exc())
+                return False
 
     def deal_with_package_incorrect(self, curr_pkg):
         """
@@ -895,6 +928,30 @@ class Baas_thread:
             except Exception as e:
                 print(e)
                 self.u2.uiautomator.start()
+
+    def reconnect_device(self) -> bool:
+        """重建与模拟器的 u2 连接。
+
+        模拟器重启、adb server 被杀、adb forward 失效之后，缓存的 u2 连接会一直
+        报 AdbError/RemoteDisconnected；这里清掉缓存并重新 connect（会重做 adb
+        forward），再用 wait_uiautomator_start 等 atx-agent 就绪。
+        """
+        if not getattr(self, "is_android_device", False):
+            return False
+        try:
+            self.logger.warning("Reconnecting device: " + str(getattr(self, "serial", "")))
+            client = getattr(self, "u2_client", None)
+            if client is None:
+                client = U2Client.get_instance(self.serial)
+                self.u2_client = client
+            self.u2 = client.reconnect()
+            self.last_refresh_u2_time = time.time()
+            self.wait_uiautomator_start()
+            self.logger.info("Device reconnected.")
+            return True
+        except Exception as error:
+            self.logger.warning("Reconnect device failed: " + str(error))
+            return False
 
     def daily_config_refresh(self):
         now = datetime.now()
