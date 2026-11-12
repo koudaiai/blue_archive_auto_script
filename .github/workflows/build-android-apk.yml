@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       source_branch:
-        description: '要打包的分支（留空用触发时的分支）'
+        description: '要打包的分支（默认 test/dev-merge，不要改成上游分支）'
         required: false
         default: 'test/dev-merge'
 
@@ -34,16 +34,22 @@ jobs:
           fetch-depth: 0
           path: blue_archive_auto_script
 
-      - name: Show source revision
+      - name: Verify source revision
         working-directory: ./blue_archive_auto_script
         run: |
           echo "Requested branch: ${{ inputs.source_branch || github.ref_name }}"
           echo "Actual HEAD:"
           git log -1 --oneline
-          echo "Android runtime files present:"
-          test -f android_main.py && echo "  android_main.py OK"
-          test -f core/android/power.py && echo "  core/android/power.py OK"
-          test -f deploy/android/src/main/java/org/baas/boa/BaasForegroundService.java && echo "  BaasForegroundService.java OK"
+          # 选错分支（尤其选回上游 pur1fy_dev）时立刻失败，别浪费 90 分钟编译
+          for f in android_main.py core/android/power.py core/android/foreground.py \
+                   gui/components/expand/androidConfig.py \
+                   deploy/android/src/main/java/org/baas/boa/BaasForegroundService.java; do
+            if [ ! -f "$f" ]; then
+              echo "::error::Missing $f - wrong branch, need test/dev-merge (self-modified Android code)"
+              exit 1
+            fi
+          done
+          echo "Android runtime sources verified."
 
       - name: Setup Python 3.9
         uses: actions/setup-python@v6
