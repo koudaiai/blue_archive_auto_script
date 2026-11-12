@@ -19,11 +19,11 @@ jobs:
     env:
       JAVA_HOME: /opt/java/openjdk-17
     steps:
-      - name: Checkout BaasOnAndroid (pur1fy_dev)
+      - name: Checkout BAAS (test/dev-merge)
         uses: actions/checkout@v4
         with:
-          repository: pur1fying/blue_archive_auto_script
-          ref: pur1fy_dev
+          repository: koudaiai/blue_archive_auto_script
+          ref: test/dev-merge
           fetch-depth: 0
           path: blue_archive_auto_script
 
@@ -50,6 +50,20 @@ jobs:
         with:
           distribution: 'adopt'
           java-version: '17'
+
+      # 锁屏 PIN 不入库：从仓库 Secret 注入到打包产物里
+      - name: Inject unlock PIN
+        working-directory: ./blue_archive_auto_script
+        env:
+          BAAS_PIN: ${{ secrets.BAAS_PIN }}
+        run: |
+          if [ -n "${BAAS_PIN}" ]; then
+            mkdir -p config
+            printf '{\n  "enabled": true,\n  "password": "%s"\n}\n' "${BAAS_PIN}" > config/android_power.json
+            echo "config/android_power.json 已写入（PIN 长度 ${#BAAS_PIN}）"
+          else
+            echo "::warning::未设置 BAAS_PIN secret，解锁密码将为空，需要运行后手动写入配置"
+          fi
 
       - name: Build APK (arm64-v8a)
         working-directory: ./blue_archive_auto_script
