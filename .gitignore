@@ -1,0 +1,6 @@
+# 运行/本地产生的文件，避免误提交
+__pycache__/
+*.py[cod]
+.venv/
+.env/
+config/cache/
