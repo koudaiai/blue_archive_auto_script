@@ -71,7 +71,7 @@ jobs:
           fi
 
           # 冲突：记录冲突文件后放弃本次合并，分支保持原状
-          files=$(git diff --name-only --diff-filter=U | paste -sd ', ' -)
+          files=$(git diff --name-only --diff-filter=U | paste -sd ',' - | sed 's/,/, /g')
           git merge --abort || true
           echo "status=conflict" >> "$GITHUB_OUTPUT"
           echo "files=$files" >> "$GITHUB_OUTPUT"
@@ -95,12 +95,33 @@ jobs:
           BRANCH: ${{ matrix.branch }}
           FILES: ${{ steps.merge.outputs.files }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           if [ "${GH_REPO}" != "koudaiai/blue_archive_auto_script" ]; then
             echo "::error::当前仓库是 ${GH_REPO}，与预期 fork 不一致，跳过创建 issue"
             exit 0
           fi
           title="上游同步冲突：${BRANCH}"
+          # 本仓库没有开启 Issues（has_issues=false）：只用 Step Summary + annotation 提示，
+          # 不能因为「通知渠道不可用」把 workflow 判成失败
+          has_issues=$(gh api "repos/${GH_REPO}" --jq '.has_issues' 2>/dev/null || echo "false")
+          if [ "${has_issues}" != "true" ]; then
+            echo "::warning::${title}（Issues 未开启，详情见本次运行 Summary）"
+            {
+              echo "### ${title}"
+              echo ""
+              echo "冲突文件：\`${FILES}\`"
+              echo ""
+              echo "已放弃本次合并，分支未改动；本仓库未开启 Issues，故只在此处记录。"
+              echo ""
+              echo '```bash'
+              echo "git fetch https://github.com/pur1fying/blue_archive_auto_script.git master"
+              echo "git checkout ${BRANCH}"
+              echo "git merge FETCH_HEAD     # 解决冲突后 commit"
+              echo "git push origin ${BRANCH}"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           body_file=$(mktemp)
           {
             echo "上游 \`pur1fying/blue_archive_auto_script\` 有更新，但自动合并 \`${BRANCH}\` 时冲突。"
@@ -121,11 +142,13 @@ jobs:
           } > "$body_file"
 
           existing=$(gh issue list --repo "$GH_REPO" --state open \
-            --search "${title} in:title" --limit 1 --json number --jq '.[0].number // ""')
-          if [ -n "$existing" ]; then
-            gh issue comment "$existing" --repo "$GH_REPO" --body-file "$body_file"
+            --search "${title} in:title" --limit 1 --json number --jq '.[0].number // ""' 2>/dev/null || true)
+          if [ -n "${existing}" ]; then
+            gh issue comment "$existing" --repo "$GH_REPO" --body-file "$body_file" \
+              || echo "::warning::评论 issue 失败（可能未开启 Issues）"
           else
-            gh issue create --repo "$GH_REPO" --title "$title" --body-file "$body_file"
+            gh issue create --repo "$GH_REPO" --title "$title" --body-file "$body_file" \
+              || echo "::warning::创建 issue 失败（可能未开启 Issues）"
           fi
 
       - name: Close stale conflict issue
@@ -140,9 +163,15 @@ jobs:
           if [ "${GH_REPO}" != "koudaiai/blue_archive_auto_script" ]; then
             exit 0
           fi
+          has_issues=$(gh api "repos/${GH_REPO}" --jq '.has_issues' 2>/dev/null || echo "false")
+          if [ "${has_issues}" != "true" ]; then
+            # 未开启 Issues，没有 issue 需要关闭
+            exit 0
+          fi
           title="上游同步冲突：${BRANCH}"
           number=$(gh issue list --repo "$GH_REPO" --state open \
-            --search "${title} in:title" --limit 1 --json number --jq '.[0].number // ""')
-          if [ -n "$number" ]; then
-            gh issue close "$number" --repo "$GH_REPO" --comment "本次同步已成功，自动关闭。"
+            --search "${title} in:title" --limit 1 --json number --jq '.[0].number // ""' 2>/dev/null || true)
+          if [ -n "${number}" ]; then
+            gh issue close "$number" --repo "$GH_REPO" --comment "本次同步已成功，自动关闭。" \
+              || echo "::warning::关闭 issue 失败"
           fi
