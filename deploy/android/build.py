@@ -6,6 +6,7 @@ import jinja2
 import shutil
 import typer
 import subprocess
+import zipfile
 from typing import List
 
 ARCH_MAP = {
@@ -132,13 +133,19 @@ def ensure_pyside6_shiboken6(arch):
 
 def download_artifact(path: str, url: str):
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    if os.path.exists(path) and os.path.getsize(path) > 0:
+    if os.path.exists(path) and os.path.getsize(path) > 0 and zipfile.is_zipfile(path):
         return
+    if os.path.exists(path):
+        log(f'Existing {path} is not a valid wheel, re-downloading...')
+        os.remove(path)
     log(f'Downloading artifact from to {path}...')
-    # os.system 会吞掉失败，wheel 没下全时后面才以各种离奇错误失败，这里先拦住
+    # os.system 会吞掉失败，而 CDN/镜像即使返回 404 HTML 页面 curl 也可能退出 0，
+    # 结果后面 buildozer 解压 wheel 才以离奇错误失败。这里同时校验退出码和 zip 魔数。
     result = subprocess.run(['curl', '-L', '-f', url, '-o', path])
     if result.returncode != 0 or not os.path.exists(path) or os.path.getsize(path) == 0:
         raise SystemExit(f'Failed to download {url} into {path}')
+    if not zipfile.is_zipfile(path):
+        raise SystemExit(f'Downloaded file is not a valid wheel (error page?): {path}')
 
 def _build():
     os.environ['ANDROIDSDK'] = proj_path(ANDROID_SDK_PATH)
