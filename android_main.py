@@ -10,10 +10,22 @@ This file is the entry point for the Android version of BAAS.
 # print("Waiting for debugger attach...")
 # debugpy.wait_for_client()
 
+import os
+
+# 必须在导入任何会读取这些变量的模块之前设置（OCR 安装器在模块级就会读取）
+os.environ["BAAS_ANDROID"] = "1"
+
 # Setup Shizuku and ADB
 import core.android.classes # Load classes early  # noqa: F401
 from core.android.util import main_activity
 Main = main_activity()
+
+# 补充 Android 运行时目录：APK 的私有目录（可写）+ 原生库目录（.so 所在）
+try:
+    os.environ.setdefault("BAAS_ANDROID_INTERNAL_FILES_DIR", Main.getFilesDir().getAbsolutePath())
+    os.environ.setdefault("BAAS_ANDROID_NATIVE_LIBRARY_DIR", Main.getApplicationInfo().nativeLibraryDir)
+except Exception:
+    pass
 
 from core.android.shizuku import request_permission
 from core.android import patch_adb, ShizukuClient
@@ -23,6 +35,10 @@ shizuku = ShizukuClient(logger)
 request_permission()
 shizuku.connect()
 patch_adb(shizuku, logger)
+
+# 熄屏后保活：把进程挂到前台服务上，避免被 Cached Apps Freezer 冻结
+from core.android.foreground import ensure_foreground_service
+ensure_foreground_service(logger)
 
 
 import sys

@@ -21,12 +21,14 @@ p4a.branch = develop
 p4a.commit = 4838a0a2455783ad511478e44bc661ad5153bb42
 p4a.bootstrap = qt
 p4a.local_recipes = {{ local_recipes_path }}
-android.permissions = android.permission.WRITE_EXTERNAL_STORAGE, android.permission.INTERNET, android.permission.INTERACT_ACROSS_USERS_FULL
+android.permissions = android.permission.WRITE_EXTERNAL_STORAGE, android.permission.INTERNET, android.permission.INTERACT_ACROSS_USERS_FULL, android.permission.FOREGROUND_SERVICE
 android.add_jars = {{ jars_path }}
 p4a.extra_args = --qt-libs=Core,Gui,Widgets --load-local-libs=plugins_platforms_qtforandroid --init-classes=
 icon.filename = {{ icon_path }}
 android.enable_androidx = True
 android.entrypoint = org.baas.boa.MainActivity
+# 常驻前台服务：熄屏后把进程提到前台优先级，避免被 Cached Apps Freezer 冻结
+android.extra_manifest_application_arguments = <service android:name="org.baas.boa.BaasForegroundService" android:exported="false" />
 
 ######### Shizuku #########
 android.gradle_dependencies = dev.rikka.shizuku:api:13.1.5,dev.rikka.shizuku:provider:13.1.5,androidx.core:core:1.6.0,org.jetbrains.kotlin:kotlin-stdlib:1.9.22

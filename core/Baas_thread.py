@@ -493,6 +493,8 @@ class Baas_thread:
         """
         try:
             self.logger.info("-------------- Start Scheduler ----------------")
+            # Android 上可能上电时屏幕是灭的/锁着的：先唤醒解锁，再跑 restart
+            self._android_prepare()
             self.solve('restart')  # check package and go to main_page
             while self.flag_run:
                 nextTask = self.scheduler.heartbeat()  # get next task
@@ -539,6 +541,8 @@ class Baas_thread:
                         self.to_main_page()
                         self.main_page_update_data()
                         self.task_finish_to_main_page = False
+                        # 一轮任务收尾：Android 上关掉游戏，之后由系统超时自动息屏
+                        self._android_idle()
                     self.scheduler.update_valid_task_queue()
                     time.sleep(1)
                     if self.flag_run:  # allow user to stop script before then action
@@ -553,11 +557,11 @@ class Baas_thread:
                     self.logger.warning(
                         f"Device recovered, re-enter scheduler loop ({self._loop_reentry_count}/3)"
                     )
-                    return self.start()
+                    return self.thread_starter()
             return False
         finally:
             # Ensure BoA overlay/display settings are cleaned up when the thread exits.
-            # 重进调度循环时 start() 会按 target_display 判断是否需要重建，不会留坏状态。
+            # 重进调度循环时 thread_starter() 会按 target_display 判断是否需要重建。
             try:
                 if utils.host_platform_is_android() and self.u2 is not None:
                     self._clean_boa()
@@ -1320,6 +1324,51 @@ class Baas_thread:
     def _clean_boa(self):
         # remove virtual display
         self.u2.shell('settings put global overlay_display_devices ""')
+        # 清掉引用，重进调度循环时 thread_starter() 会据此重建
+        self.target_display = None
+
+    def _get_android_power(self):
+        """懒加载 Android 电源控制器（依赖已经初始化的 u2）。"""
+        power = getattr(self, "android_power", None)
+        if power is None:
+            from pathlib import Path
+
+            from core.android.power import AndroidPower
+
+            power = AndroidPower(self.u2, self.logger, Path(self.project_dir))
+            self.android_power = power
+        return power
+
+    def _android_prepare(self) -> bool:
+        """每轮任务开始前把屏幕点亮并解锁。
+
+        熄屏时 screencap 只能拿到黑图，所以这一步不能省。全部是事件注入，
+        不改动任何系统设置。
+        """
+        if not utils.host_platform_is_android():
+            return False
+        try:
+            return self._get_android_power().ensure_ready()
+        except Exception as error:
+            self.logger.warning("Android prepare failed: " + str(error))
+            return False
+
+    def _android_idle(self) -> None:
+        """任务队列跑完：关掉游戏，屏幕交给系统按用户自己的超时策略熄灭。"""
+        if not utils.host_platform_is_android():
+            return
+        try:
+            power = self._get_android_power()
+        except Exception as error:
+            self.logger.warning("Android idle hook failed: " + str(error))
+            return
+        if not power.stop_game_when_idle:
+            return
+        try:
+            self.logger.info("All tasks finished, closing game for idle.")
+            power.stop_game(self.package_name)
+        except Exception as error:
+            self.logger.warning("Close game failed: " + str(error))
 
     def resolution_uiautomator2(self):
         for i in range(0, 3):
