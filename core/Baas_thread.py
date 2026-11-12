@@ -929,17 +929,26 @@ class Baas_thread:
                 print(e)
                 self.u2.uiautomator.start()
 
-    def reconnect_device(self) -> bool:
-        """重建与模拟器的 u2 连接。
+    def _sleep_interruptible(self, seconds: float) -> bool:
+        """等待指定秒数，期间若用户点了停止则提前返回 False。"""
+        deadline = time.time() + max(0.0, seconds)
+        while time.time() < deadline:
+            if not self.flag_run:
+                return False
+            time.sleep(0.2)
+        return True
 
-        模拟器重启、adb server 被杀、adb forward 失效之后，缓存的 u2 连接会一直
-        报 AdbError/RemoteDisconnected；这里清掉缓存并重新 connect（会重做 adb
-        forward），再用 wait_uiautomator_start 等 atx-agent 就绪。
-        """
-        if not getattr(self, "is_android_device", False):
-            return False
+    def _try_reconnect_device(self) -> bool:
         try:
             self.logger.warning("Reconnecting device: " + str(getattr(self, "serial", "")))
+            # 先让 adb 侧恢复：设备处于 offline 时 forward 一定失败，adb_connect
+            # 会顺手断开 offline 设备再重连；失败也不阻塞后续步骤
+            connection = getattr(self, "connection", None)
+            if connection is not None:
+                try:
+                    connection.adb_connect()
+                except Exception as adb_error:
+                    self.logger.warning("adb reconnect failed: " + str(adb_error))
             client = getattr(self, "u2_client", None)
             if client is None:
                 client = U2Client.get_instance(self.serial)
@@ -952,6 +961,56 @@ class Baas_thread:
         except Exception as error:
             self.logger.warning("Reconnect device failed: " + str(error))
             return False
+
+    def restart_emulator(self) -> bool:
+        """按配置重启模拟器（仅当用户勾选了「自动打开模拟器」）。
+
+        注意：这是丢连接后的最后手段，会关掉模拟器再重开，正在进行的战斗会丢失。
+        """
+        if not getattr(self.config, "open_emulator_stat", False):
+            self.logger.warning("Emulator auto-start is disabled, skip emulator restart.")
+            return False
+        wait_time = float(getattr(self.config, "emulator_wait_time", 60) or 60)
+        try:
+            if getattr(self.config, "emulatorIsMultiInstance", False):
+                name = self.config.multiEmulatorName
+                number = self.config.emulatorMultiInstanceNumber
+                self.logger.warning(f"Restarting emulator: {name} #{number}")
+                emulator_manager.stop_simulator_classic(name, number)
+                if not self._sleep_interruptible(5):
+                    return False
+                emulator_manager.start_simulator_classic(name, number)
+            else:
+                path = getattr(self.config, "program_address", "")
+                self.logger.warning("Restarting emulator: " + str(path))
+                process_api.terminate(path)
+                if not self._sleep_interruptible(5):
+                    return False
+                process_api.start(path)
+            self.logger.info(f"Waiting {int(wait_time)}s for emulator to boot ...")
+            return self._sleep_interruptible(wait_time)
+        except Exception as error:
+            self.logger.warning("Restart emulator failed: " + str(error))
+            return False
+
+    def reconnect_device(self) -> bool:
+        """尽力把设备连接救回来：先重连 u2，失败再尝试重启模拟器。
+
+        模拟器重启、adb server 被杀、adb forward 失效之后，缓存的 u2 连接会一直
+        报 AdbError/RemoteDisconnected；这里清掉缓存并重新 connect（会重做 adb
+        forward），再用 wait_uiautomator_start 等 atx-agent 就绪。
+        """
+        if not getattr(self, "is_android_device", False):
+            return False
+        if self._try_reconnect_device():
+            return True
+        if not self.flag_run:
+            return False
+        if not self.restart_emulator():
+            return False
+        if not self.flag_run:
+            return False
+        return self._try_reconnect_device()
 
     def daily_config_refresh(self):
         now = datetime.now()
