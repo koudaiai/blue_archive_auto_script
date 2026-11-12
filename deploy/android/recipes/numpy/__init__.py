@@ -1,8 +1,24 @@
 from pythonforandroid.recipe import Recipe, MesonRecipe
+from pythonforandroid.recipe import PyProjectRecipe as _PyProjectRecipe
 from pythonforandroid.logger import error
 from os.path import join, dirname
 import glob
 import shutil
+
+# 全局修复 p4a 的 PEP517 构建隔离问题。
+# PyProjectRecipe.build_arch() 用 `python -m build --wheel`，默认创建隔离环境；
+# 而 PythonRecipe.get_recipe_env() 把 PYTHONPATH 指向交叉编译 hostpython3 的
+# 源码 Lib/ —— 那里只有纯 .py，没有 math / _posixsubprocess / select 等 C 扩展。
+# 隔离环境继承该 PYTHONPATH 后，numpy 报缺 _posixsubprocess、Pillow 报缺 math，
+# 本质是同一个病根。这里在 recipe 加载阶段给基类补参数，让所有继承
+# PyProjectRecipe 且未自行覆盖 extra_build_args 的 recipe（Pillow、lxml 等）
+# 都在已经能正常运行的 hostpython3 里构建；它们各自声明的
+# hostpython_prerequisites（如 Pillow 的 setuptools>=77）由
+# PyProjectRecipe.build_arch 负责安装，不依赖隔离环境。
+# 注意 numpy 自己覆盖了 extra_build_args，所以下面 NumpyRecipe 里也保留了这两个参数。
+for _flag in ('--no-isolation', '--skip-dependency-check'):
+    if _flag not in _PyProjectRecipe.extra_build_args:
+        _PyProjectRecipe.extra_build_args.append(_flag)
 
 NUMPY_NDK_MESSAGE = "In order to build numpy, you must set minimum ndk api (minapi) to `24`.\n"
 
