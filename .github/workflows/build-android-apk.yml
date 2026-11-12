@@ -1,16 +1,24 @@
 name: Build BaasOnAndroid APK (arm64)
 
-# 手动触发的手机版构建：把 pur1fy_dev 分支的 BaasOnAndroid 打包成 arm64 APK。
+# 手动触发的手机版构建：把「本 fork 的自改分支」打包成 arm64 APK。
 # 产物在本次运行的 Artifacts 里（BAAS_Android_arm64），下载后可直接 adb install。
 #
 # 说明：
 # - 上游自带的 android_build.yml 有 `if: repository == 'pur1fying/...'` 守卫，在 fork 里不会执行，
 #   这个文件是它的无守卫精简版（只构建 arm64，省一半时间）。
-# - 源码固定取上游 pur1fy_dev（手机运行时 android_main.py / core/android/ 只在该分支）。
+# - 源码固定取本仓库的 test/dev-merge（前台服务 / 界面填 PIN / 4 小时稳定性测试只在该分支）。
+#   注意：千万不要改回 checkout 上游 pur1fy_dev，那样自改代码一个字节都不会进 APK。
+# - workflow_dispatch 的 UI 只在默认分支列出 workflow，所以 master 上放了同一份文件；
+#   两边都通过 source_branch 指定真正要打包的分支。
 # - 构建很重：首次约 40~90 分钟，主要耗时在 python-for-android 编译 Qt6 / numpy / opencv。
 
 on:
   workflow_dispatch:
+    inputs:
+      source_branch:
+        description: '要打包的分支（默认 test/dev-merge，不要改成上游分支）'
+        required: false
+        default: 'test/dev-merge'
 
 jobs:
   build:
@@ -19,13 +27,29 @@ jobs:
     env:
       JAVA_HOME: /opt/java/openjdk-17
     steps:
-      - name: Checkout BAAS (test/dev-merge)
+      - name: Checkout BAAS source
         uses: actions/checkout@v4
         with:
-          repository: koudaiai/blue_archive_auto_script
-          ref: test/dev-merge
+          ref: ${{ inputs.source_branch || github.ref_name }}
           fetch-depth: 0
           path: blue_archive_auto_script
+
+      - name: Verify source revision
+        working-directory: ./blue_archive_auto_script
+        run: |
+          echo "Requested branch: ${{ inputs.source_branch || github.ref_name }}"
+          echo "Actual HEAD:"
+          git log -1 --oneline
+          # 选错分支（尤其选回上游 pur1fy_dev）时立刻失败，别浪费 90 分钟编译
+          for f in android_main.py core/android/power.py core/android/foreground.py \
+                   gui/components/expand/androidConfig.py \
+                   deploy/android/src/main/java/org/baas/boa/BaasForegroundService.java; do
+            if [ ! -f "$f" ]; then
+              echo "::error::Missing $f - wrong branch, need test/dev-merge (self-modified Android code)"
+              exit 1
+            fi
+          done
+          echo "Android runtime sources verified."
 
       - name: Setup Python 3.9
         uses: actions/setup-python@v6
@@ -50,20 +74,6 @@ jobs:
         with:
           distribution: 'adopt'
           java-version: '17'
-
-      # 锁屏 PIN 不入库：从仓库 Secret 注入到打包产物里
-      - name: Inject unlock PIN
-        working-directory: ./blue_archive_auto_script
-        env:
-          BAAS_PIN: ${{ secrets.BAAS_PIN }}
-        run: |
-          if [ -n "${BAAS_PIN}" ]; then
-            mkdir -p config
-            printf '{\n  "enabled": true,\n  "password": "%s"\n}\n' "${BAAS_PIN}" > config/android_power.json
-            echo "config/android_power.json 已写入（PIN 长度 ${#BAAS_PIN}）"
-          else
-            echo "::warning::未设置 BAAS_PIN secret，解锁密码将为空，需要运行后手动写入配置"
-          fi
 
       - name: Build APK (arm64-v8a)
         working-directory: ./blue_archive_auto_script
