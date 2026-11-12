@@ -102,6 +102,10 @@ class Baas_thread:
         self.project_dir = os.path.dirname(self.project_dir)
         self.u2_client = None
         self.u2 = None
+        # 设备级故障恢复的防抖计数（一次运行内）
+        self._emulator_restart_count = 0
+        self._last_emulator_restart_time = 0.0
+        self._loop_reentry_count = 0
         self.dailyGameActivity = None
         self.config_set = config
         self.process_name = None
@@ -528,6 +532,15 @@ class Baas_thread:
                         self.handle_then()
         except Exception as e:
             self.logger.error(traceback.format_exc())
+            # 调度循环自身异常（非任务内部）：也尝试恢复设备后重新进入循环，
+            # 避免一次偶发错误让整晚挂机停摆；单次运行最多重进 3 回
+            if self.flag_run and self._loop_reentry_count < 3:
+                self._loop_reentry_count += 1
+                if self.recover_device("scheduler loop"):
+                    self.logger.warning(
+                        f"Device recovered, re-enter scheduler loop ({self._loop_reentry_count}/3)"
+                    )
+                    return self.start()
             return
 
     def genScheduleLog(self, task):
@@ -560,26 +573,41 @@ class Baas_thread:
             if i != 0:
                 self.logger.info("Retry Task " + activity + " " + str(i))
             try:
-                return func_dict[activity](self)
+                result = func_dict[activity](self)
+                if result:
+                    # 任务正常完成，说明设备恢复正常，重置重启计数
+                    self._emulator_restart_count = 0
+                return result
             except FunctionCallTimeout:
                 if not self.deal_with_func_call_timeout():
+                    if i < 2 and self.recover_device(activity, allow_restart=True):
+                        self.logger.info("Device recovered, retry task " + activity)
+                        continue
                     self.push_and_log_error_msg("Function Call Timeout",
                                                 "Failed to Restart Game when function call timeout")
                     return False
             except PackageIncorrect as e:
                 pkg = e.message
                 if not self.deal_with_package_incorrect(pkg):
+                    if i < 2 and self.recover_device(activity, allow_restart=True):
+                        self.logger.info("Device recovered, retry task " + activity)
+                        continue
                     self.push_and_log_error_msg("Package Incorrect", "Failed to Restart Game when package incorrect")
                     return False
             except Exception as error:
                 if not self.flag_run:
                     return True  # Human take over
-                if i < 2 and is_device_connection_error(error):
-                    self.logger.warning(
-                        "Device connection error: " + type(error).__name__ + " " + str(error)
-                    )
-                    if self.reconnect_device():
-                        self.logger.info("Device reconnected, retry task " + activity)
+                connection_error = is_device_connection_error(error)
+                self.logger.warning(
+                    ("Device connection error: " if connection_error else "Task failed: ")
+                    + type(error).__name__ + " " + str(error)
+                )
+                if i < 2:
+                    # 连接类错误直接允许重启模拟器；其它异常先轻量重连重试一次，
+                    # 再失败才升级为重启模拟器
+                    allow_restart = connection_error or i >= 1
+                    if self.recover_device(activity, allow_restart=allow_restart):
+                        self.logger.info("Device recovered, retry task " + activity)
                         continue
                 self.push_and_log_error_msg("Script Error Occurred", traceback.format_exc())
                 return False
@@ -962,13 +990,22 @@ class Baas_thread:
             self.logger.warning("Reconnect device failed: " + str(error))
             return False
 
-    def restart_emulator(self) -> bool:
-        """按配置重启模拟器（仅当用户勾选了「自动打开模拟器」）。
+    def can_restart_emulator(self) -> bool:
+        """配置里是否能定位到模拟器（多开实例名/号，或程序路径）。"""
+        if getattr(self.config, "emulatorIsMultiInstance", False):
+            return bool(getattr(self.config, "multiEmulatorName", "")) and bool(
+                getattr(self.config, "emulatorMultiInstanceNumber", "")
+            )
+        return bool(getattr(self.config, "program_address", ""))
 
-        注意：这是丢连接后的最后手段，会关掉模拟器再重开，正在进行的战斗会丢失。
+    def restart_emulator(self) -> bool:
+        """重启模拟器（与「自动打开模拟器」开关无关）。
+
+        该开关只负责「开始运行时帮我打开模拟器」，不限制故障恢复。
+        恢复流程由 recover_device() 控制频率与次数。
         """
-        if not getattr(self.config, "open_emulator_stat", False):
-            self.logger.warning("Emulator auto-start is disabled, skip emulator restart.")
+        if not self.can_restart_emulator():
+            self.logger.warning("Skip emulator restart: instance or program path not configured.")
             return False
         wait_time = float(getattr(self.config, "emulator_wait_time", 60) or 60)
         try:
@@ -993,24 +1030,39 @@ class Baas_thread:
             self.logger.warning("Restart emulator failed: " + str(error))
             return False
 
-    def reconnect_device(self) -> bool:
-        """尽力把设备连接救回来：先重连 u2，失败再尝试重启模拟器。
+    def recover_device(self, reason: str = "", allow_restart: bool = True) -> bool:
+        """设备级故障恢复：轻量重连 → 重启模拟器 → 再重连。
 
-        模拟器重启、adb server 被杀、adb forward 失效之后，缓存的 u2 连接会一直
-        报 AdbError/RemoteDisconnected；这里清掉缓存并重新 connect（会重做 adb
-        forward），再用 wait_uiautomator_start 等 atx-agent 就绪。
+        任何会让脚本停下来的异常都走这里；重启模拟器带限次（单次运行 3 回）
+        与限频（10 分钟），避免逻辑 bug 反复重启。
         """
         if not getattr(self, "is_android_device", False):
             return False
         if self._try_reconnect_device():
             return True
-        if not self.flag_run:
+        if not allow_restart or not self.flag_run or not self.can_restart_emulator():
             return False
+        now = time.time()
+        if self._emulator_restart_count >= 3:
+            self.logger.warning("Emulator restart limit reached (3 per run), give up recovery.")
+            return False
+        if now - self._last_emulator_restart_time < 600:
+            self.logger.warning("Emulator restarted less than 10 minutes ago, skip this time.")
+            return False
+        self._emulator_restart_count += 1
+        self._last_emulator_restart_time = now
+        self.logger.warning(
+            f"Recovery for [{reason}]: restarting emulator ({self._emulator_restart_count}/3)"
+        )
         if not self.restart_emulator():
             return False
         if not self.flag_run:
             return False
         return self._try_reconnect_device()
+
+    def reconnect_device(self) -> bool:
+        """兼容旧调用：等价于允许重启模拟器的完整恢复。"""
+        return self.recover_device(reason="reconnect_device", allow_restart=True)
 
     def daily_config_refresh(self):
         now = datetime.now()
