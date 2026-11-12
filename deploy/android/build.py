@@ -132,14 +132,29 @@ def ensure_pyside6_shiboken6(arch):
 
 def download_artifact(path: str, url: str):
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    if not os.path.exists(path):
-        log(f'Downloading artifact from to {path}...')
-        os.system(f'curl -L {url} -o {path}')
+    if os.path.exists(path) and os.path.getsize(path) > 0:
+        return
+    log(f'Downloading artifact from to {path}...')
+    # os.system 会吞掉失败，wheel 没下全时后面才以各种离奇错误失败，这里先拦住
+    result = subprocess.run(['curl', '-L', '-f', url, '-o', path])
+    if result.returncode != 0 or not os.path.exists(path) or os.path.getsize(path) == 0:
+        raise SystemExit(f'Failed to download {url} into {path}')
 
 def _build():
     os.environ['ANDROIDSDK'] = proj_path(ANDROID_SDK_PATH)
     os.environ['ANDROIDNDK'] = proj_path(ANDROID_NDK_PATH)
-    os.system(f'buildozer android debug')
+    # 以前用 os.system 且不检查返回码：buildozer 编译失败时整个命令仍退出 0，
+    # CI 会把「构建」标绿，最后只在 upload-artifact 报「找不到 bin/*.apk」。
+    log('Running: buildozer android debug (cwd=' + proj_path('.') + ')')
+    result = subprocess.run(['buildozer', 'android', 'debug'], cwd=proj_path('.'))
+    if result.returncode != 0:
+        raise SystemExit(f'buildozer android debug failed with code {result.returncode}')
+    apk_dir = proj_path(BIN_DIR)
+    apks = [name for name in os.listdir(apk_dir) if name.endswith('.apk')] \
+        if os.path.isdir(apk_dir) else []
+    if not apks:
+        raise SystemExit(f'buildozer returned 0 but no APK was produced in {apk_dir}')
+    log('APK(s) produced: ' + ', '.join(apks))
 
 app = typer.Typer(help="Build helper for Android deployment")
 

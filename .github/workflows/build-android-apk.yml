@@ -42,8 +42,8 @@ jobs:
           git log -1 --oneline
           # 选错分支（尤其选回上游 pur1fy_dev）时立刻失败，别浪费 90 分钟编译
           for f in android_main.py core/android/power.py core/android/foreground.py \
-                   gui/components/expand/androidConfig.py \
-                   deploy/android/src/main/java/org/baas/boa/BaasForegroundService.java; do
+                    gui/components/expand/androidConfig.py \
+                    deploy/android/src/main/java/org/baas/boa/BaasForegroundService.java; do
             if [ ! -f "$f" ]; then
               echo "::error::Missing $f - wrong branch, need test/dev-merge (self-modified Android code)"
               exit 1
@@ -78,13 +78,39 @@ jobs:
       - name: Build APK (arm64-v8a)
         working-directory: ./blue_archive_auto_script
         run: |
+          set -o pipefail
           mkdir -p "${ANDROID_SDK_ROOT}/tools/"
           cp -r "${ANDROID_SDK_ROOT}/cmdline-tools/latest/"* "${ANDROID_SDK_ROOT}/tools/"
+          # build.py 现在会检查 buildozer 返回码和产物，失败时本步骤直接标红，
+          # 不会再出现「构建绿、上传才报找不到 APK」。日志同时留档便于下载排查。
           python deploy/android/build.py all \
             --arch arm64-v8a \
             --android-sdk-path "${ANDROID_SDK_ROOT}" \
             --android-ndk-path "${ANDROID_NDK_LATEST_HOME}" \
-            --min-api=24
+            --min-api=24 2>&1 | tee buildozer.log
+
+      - name: Collect build diagnostics
+        if: always()
+        working-directory: ./blue_archive_auto_script
+        run: |
+          echo "=== buildozer.log tail (last 120 lines) ==="
+          tail -n 120 buildozer.log 2>/dev/null || echo "no buildozer.log"
+          tail -n 3000 buildozer.log > buildozer-tail.log 2>/dev/null || true
+          echo "=== every APK on disk ==="
+          find . -type f -name '*.apk' -print 2>/dev/null | head -30
+          # buildozer 有时把 debug APK 留在 .buildozer 中间目录而不复制进 bin/
+          mkdir -p bin
+          find . -type f -name '*.apk' ! -path './bin/*' -exec cp -n {} bin/ \; 2>/dev/null || true
+          echo "=== collected in bin/ ==="
+          ls -lh bin/*.apk 2>/dev/null || echo "NO APK FOUND"
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BAAS_Android_build_log
+          path: ./blue_archive_auto_script/buildozer-tail.log
+          if-no-files-found: warn
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
