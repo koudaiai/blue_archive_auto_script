@@ -1,9 +1,21 @@
 # 运行/本地产生的文件，避免误提交
 __pycache__/
+__pycache__
 *.py[cod]
 .venv/
+.venv
 .env/
-config/cache/
+config/
+error.log
 
 # 本地启动脚本，不上传
 /baas.bat
+
+# Android 构建中间产物
+/.sdk
+/.pyside6_android_deploy
+/.qt-lib
+/.buildozer
+/deployment
+buildozer.spec
+build

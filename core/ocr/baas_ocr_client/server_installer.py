@@ -25,9 +25,19 @@ if sys.stdin is None:
 
 from core.exception import OcrInternalError
 
+# Android 上 requests/dulwich 需要显式指定 CA 证书，否则 SSL 校验失败
+if os.getenv("BAAS_ANDROID", "").lower() in {"1", "true", "yes", "on"}:
+    try:
+        import certifi
+        os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+    except ImportError:
+        pass
+
 if sys.platform not in ["win32", "linux", "darwin"]:
     raise Exception("Ocr Unsupported platform " + sys.platform)
 
+SERVER_INSTALLER_DIR_PATH = None
+SERVER_BIN_DIR = None
 OCR_SERVER_PREBUILD_URL = "https://gitee.com/pur1fy/baas_-cpp_prebuild.git"
 OCR_SERVER_PREBUILD_ARCHIVE_URLS = [
     "https://codeload.github.com/pur1fying/BAAS_Cpp_prebuild/zip/refs/heads/{branch}",

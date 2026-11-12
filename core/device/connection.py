@@ -45,6 +45,8 @@ class Connection:
             self.set_serial(self.serial)
         self.check_serial()
         self.detect_device()
+        # HACK: 
+        self.serial = 'baas'
         self.adb_connect()
         if not skip_package_detection:
             self.detect_package()
