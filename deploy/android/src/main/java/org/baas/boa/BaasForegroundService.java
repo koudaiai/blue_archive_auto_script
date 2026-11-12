@@ -25,6 +25,9 @@ public class BaasForegroundService extends Service {
     private static final String CHANNEL_ID = "baas_runtime";
     private static final String CHANNEL_NAME = "BAAS 运行状态";
     private static final int NOTIFICATION_ID = 1001;
+    // android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC == 1。
+    // 用字面量而不是常量，避免 compileSdk 较低时编译不过。
+    private static final int FGS_TYPE_DATA_SYNC = 0x1;
 
     @Override
     public void onCreate() {
@@ -35,9 +38,22 @@ public class BaasForegroundService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         try {
-            startForeground(NOTIFICATION_ID, buildNotification(this));
+            Notification notification = buildNotification(this);
+            if (Build.VERSION.SDK_INT >= 29) {
+                // manifest 声明了 dataSync，Android 14 起启动时必须显式带上类型，
+                // 否则 targetSdk>=34 会抛 MissingForegroundServiceTypeException。
+                startForeground(NOTIFICATION_ID, notification, FGS_TYPE_DATA_SYNC);
+            } else {
+                startForeground(NOTIFICATION_ID, notification);
+            }
         } catch (Exception error) {
             Log.w(TAG, "startForeground failed: " + error);
+            // 三参数重载在个别 ROM 上可能被改坏，退回两参数至少还能拿到前台优先级。
+            try {
+                startForeground(NOTIFICATION_ID, buildNotification(this));
+            } catch (Exception fallbackError) {
+                Log.w(TAG, "startForeground fallback failed: " + fallbackError);
+            }
         }
         return START_STICKY;
     }

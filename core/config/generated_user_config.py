@@ -8,6 +8,11 @@ class Config:
     name: str
     purchase_arena_ticket_times: str
     screenshot_interval: str
+    android_unlock_password: str
+    android_stop_game_when_idle: bool
+    android_test_mode: bool
+    android_test_interval_hours: str
+    android_test_keep_minutes: str
     autostart: bool
     then: str
     program_address: str

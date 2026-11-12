@@ -21,14 +21,18 @@ p4a.branch = develop
 p4a.commit = 4838a0a2455783ad511478e44bc661ad5153bb42
 p4a.bootstrap = qt
 p4a.local_recipes = {{ local_recipes_path }}
-android.permissions = android.permission.WRITE_EXTERNAL_STORAGE, android.permission.INTERNET, android.permission.INTERACT_ACROSS_USERS_FULL, android.permission.FOREGROUND_SERVICE
+android.permissions = android.permission.WRITE_EXTERNAL_STORAGE, android.permission.INTERNET, android.permission.INTERACT_ACROSS_USERS_FULL, android.permission.FOREGROUND_SERVICE, android.permission.FOREGROUND_SERVICE_DATA_SYNC, android.permission.WAKE_LOCK
 android.add_jars = {{ jars_path }}
 p4a.extra_args = --qt-libs=Core,Gui,Widgets --load-local-libs=plugins_platforms_qtforandroid --init-classes=
 icon.filename = {{ icon_path }}
 android.enable_androidx = True
 android.entrypoint = org.baas.boa.MainActivity
 # 常驻前台服务：熄屏后把进程提到前台优先级，避免被 Cached Apps Freezer 冻结
-android.extra_manifest_application_arguments = <service android:name="org.baas.boa.BaasForegroundService" android:exported="false" />
+# 用 dataSync 而不是 specialUse：specialUse 枚举值要 compileSdk>=34 才认，
+# buildozer/p4a 的实际 compileSdk 不一定到 34，写死会让整包构建失败。
+# 注：Android 15 对 dataSync 类型有「每 24 小时最多 6 小时」的超时；若测试机升到
+# Android 15 且要长期挂机，再把这里换成 specialUse 并显式设 android.api=35。
+android.extra_manifest_application_arguments = <service android:name="org.baas.boa.BaasForegroundService" android:exported="false" android:foregroundServiceType="dataSync" />
 
 ######### Shizuku #########
 android.gradle_dependencies = dev.rikka.shizuku:api:13.1.5,dev.rikka.shizuku:provider:13.1.5,androidx.core:core:1.6.0,org.jetbrains.kotlin:kotlin-stdlib:1.9.22

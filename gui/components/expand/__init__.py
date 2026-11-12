@@ -16,6 +16,7 @@ from .sweepCountConfig import Layout
 from .proceedPlot import Layout
 from .eventMapConfig import Layout
 from .emulatorConfig import Layout
+from .androidConfig import Layout
 from .pushConfig import Layout
 from .friendWhiteList import Layout
 from .drillConfig import Layout

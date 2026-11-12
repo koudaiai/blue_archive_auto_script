@@ -484,6 +484,120 @@ class Baas_thread:
         elif msg == "solve":
             return self.solve(task)
 
+    def _android_test_mode_enabled(self) -> bool:
+        """是否启用 Android 稳定性测试模式（只开关游戏，不执行游戏内任务）。"""
+        if not utils.host_platform_is_android():
+            return False
+        return bool(getattr(self.config, "android_test_mode", False))
+
+    def _android_start_game(self) -> bool:
+        """把游戏启动到虚拟屏（display id 来自 _setup_boa）。"""
+        display = getattr(self, "target_display", None)
+        if display is None:
+            self.logger.warning("No virtual display available, skip starting game.")
+            return False
+        command = (
+            f"am start --display {display.logical_id} "
+            f"-n {self.package_name}/{self.activity_name}"
+        )
+        self.logger.info("start game: " + command)
+        output = getattr(self.u2.shell(command), "output", "") or ""
+        failed = "Error" in output or "Exception" in output
+        if failed:
+            self.logger.warning("start game failed: " + output.strip()[:200])
+        return not failed
+
+    def _android_wait_for_picture(self, timeout: float = 120.0) -> bool:
+        """反复截图，直到画面不再是纯黑（说明游戏真的渲染出来了）。"""
+        deadline = time.time() + timeout
+        failures = 0
+        while self.flag_run and time.time() < deadline:
+            try:
+                image = self.screenshot.screenshot()
+                if image is not None:
+                    array = np.asarray(image)
+                    if array.size and float(array.std()) > 5.0:
+                        return True
+            except Exception as error:
+                failures += 1
+                if failures <= 3:
+                    self.logger.warning("screenshot failed: " + str(error))
+            self._sleep_interruptible(5)
+        return False
+
+    def _sleep_with_heartbeat(self, seconds: float, tag: str) -> bool:
+        """长等待期间每 30 分钟打一条存活日志。
+
+        这条日志就是稳定性测试的核心证据：4 小时后如果还能看到心跳并进入下一轮，
+        说明熄屏后进程没有被冻结、CPU 也没有把定时循环停掉。
+        """
+        deadline = time.time() + max(0.0, seconds)
+        next_beat = time.time() + 1800
+        while self.flag_run:
+            now = time.time()
+            if now >= deadline:
+                return True
+            if now >= next_beat:
+                self.logger.info(
+                    f"[keepalive] {tag}: alive, {int(deadline - now)}s left "
+                    f"@ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                )
+                next_beat = now + 1800
+            time.sleep(min(0.5, max(0.05, deadline - now)))
+        return False
+
+    def _android_stability_loop(self) -> bool:
+        """稳定性测试：每 N 小时只做「唤醒解锁 → 开游戏 → 截图确认 → 关游戏」。
+
+        不执行任何游戏内操作，不要求游戏登录账号，用来单独验证三件事：
+        熄屏后进程是否还活着、锁屏能否自动解开、游戏能否稳定启停。
+        """
+        try:
+            interval_hours = float(getattr(self.config, "android_test_interval_hours", 4) or 4)
+            keep_minutes = float(getattr(self.config, "android_test_keep_minutes", 5) or 5)
+        except (TypeError, ValueError):
+            interval_hours, keep_minutes = 4.0, 5.0
+        interval = max(600.0, interval_hours * 3600)
+        keep = max(30.0, keep_minutes * 60)
+        self.logger.info(
+            "Android stability test: interval %gh, keep %gmin, package %s"
+            % (interval_hours, keep_minutes, self.package_name)
+        )
+        cycle = 0
+        while self.flag_run:
+            cycle += 1
+            started = time.time()
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self.logger.info(f"===== stability cycle {cycle} start @ {now_str} =====")
+            power = self._get_android_power()
+            # 中途若发生过设备重连，同步最新的 u2 句柄
+            power.u2 = self.u2
+            unlocked = power.ensure_ready()
+            started_ok = self._android_start_game()
+            pictured = self._android_wait_for_picture(120)
+            self.logger.info(
+                "cycle %d: unlocked=%s game_started=%s picture=%s"
+                % (cycle, unlocked, started_ok, pictured)
+            )
+            self._sleep_with_heartbeat(keep, f"cycle {cycle} / game running")
+            try:
+                power.stop_game(self.package_name)
+                self.logger.info(
+                    f"cycle {cycle}: game closed, screen left to system timeout"
+                )
+            except Exception as error:
+                self.logger.warning("close game failed: " + str(error))
+            elapsed = time.time() - started
+            remain = interval - elapsed
+            if remain > 0 and self.flag_run:
+                self.logger.info(
+                    f"cycle {cycle}: next run in {int(remain)}s "
+                    f"@ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                )
+                self._sleep_with_heartbeat(remain, f"cycle {cycle} / waiting")
+        self.logger.info("Android stability test stopped.")
+        return True
+
     def thread_starter(self):
         """
             Solving tasks given by the scheduler.
@@ -493,6 +607,9 @@ class Baas_thread:
         """
         try:
             self.logger.info("-------------- Start Scheduler ----------------")
+            # Android 稳定性测试模式：只定时开关游戏，不跑任何游戏内任务
+            if self._android_test_mode_enabled():
+                return self._android_stability_loop()
             # Android 上可能上电时屏幕是灭的/锁着的：先唤醒解锁，再跑 restart
             self._android_prepare()
             self.solve('restart')  # check package and go to main_page
@@ -1335,7 +1452,7 @@ class Baas_thread:
 
             from core.android.power import AndroidPower
 
-            power = AndroidPower(self.u2, self.logger, Path(self.project_dir))
+            power = AndroidPower(self.u2, self.logger, self.config, Path(self.project_dir))
             self.android_power = power
         return power
 

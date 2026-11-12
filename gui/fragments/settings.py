@@ -50,6 +50,14 @@ class SettingsFragment(ScrollArea):
                 sub_view=expand.__dict__['emulatorConfig'],
                 parent=self.basicGroup,
                 config=self.config
+            ),
+
+            SimpleSettingCard(
+                title=self.tr("Android 运行设置"),
+                content=self.tr("锁屏 PIN、任务结束后关闭游戏、稳定性测试"),
+                sub_view=expand.__dict__['androidConfig'],
+                parent=self.basicGroup,
+                config=self.config
             )
         ]
 

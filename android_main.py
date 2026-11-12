@@ -36,9 +36,9 @@ request_permission()
 shizuku.connect()
 patch_adb(shizuku, logger)
 
-# 熄屏后保活：把进程挂到前台服务上，避免被 Cached Apps Freezer 冻结
-from core.android.foreground import ensure_foreground_service
-ensure_foreground_service(logger)
+# 熄屏后保活：前台服务防 Cached Apps Freezer + 唤醒锁防 CPU suspend
+from core.android.foreground import ensure_runtime_keepalive
+ensure_runtime_keepalive(logger)
 
 
 import sys

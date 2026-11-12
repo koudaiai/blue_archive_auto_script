@@ -8,10 +8,8 @@ keyguard / cached_apps_freezer）。所有动作只有两类：
 
 动作都在 Shizuku 提供的 shell 权限下执行，不改设备状态，只模拟人手指。
 
-熄屏时 `screencap` 只能拿到黑图，所以每轮任务开始前必须「唤醒 + 解锁」；
-任务结束后把游戏关掉，屏幕交给系统按用户自己的超时策略自动熄灭。
-
-配置读 ``config/android_power.json``（不入库），字段见 ``DEFAULT_CONFIG``。
+锁屏 PIN 由 BAAS 配置项 ``android_unlock_password`` 提供（GUI「Android 运行设置」里填），
+不写入仓库；``config/android_power.json`` 只保存与设备相关的坐标参数。
 """
 from __future__ import annotations
 
@@ -24,9 +22,7 @@ from typing import Optional
 SETTINGS_FILE = Path("config") / "android_power.json"
 
 # 坐标以 1080x2400（Redmi K30S / MIUI 13 实测）为参考，运行时按实际分辨率等比缩放
-DEFAULT_CONFIG = {
-    "enabled": True,
-    "password": "",
+DEFAULT_SETTINGS = {
     "ref_resolution": [1080, 2400],
     "swipe": {"from": [540, 2000], "to": [540, 900], "duration_ms": 150},
     "keypad": {
@@ -41,48 +37,47 @@ DEFAULT_CONFIG = {
         "9": [840, 1824],
         "0": [540, 2006],
     },
-    "stop_game_when_idle": True,
     "unlock_retry": 2,
 }
 
 KEYCODE_WAKEUP = "224"
 
 
-def load_config(project_root: Path) -> dict:
-    """读配置；文件不存在时按默认值创建，缺字段用默认值补齐。"""
+def load_settings(project_root: Path) -> dict:
+    """读坐标配置；文件不存在时按默认值创建，缺字段用默认值补齐。"""
     path = project_root / SETTINGS_FILE
-    config = json.loads(json.dumps(DEFAULT_CONFIG))  # deep copy
+    settings = json.loads(json.dumps(DEFAULT_SETTINGS))  # deep copy
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         if isinstance(data, dict):
             for key, value in data.items():
                 if key.startswith("_"):
                     continue
-                config[key] = value
+                settings[key] = value
     except (OSError, ValueError):
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            config["_comment"] = (
-                "password 填锁屏 PIN；keypad/swipe 坐标以 ref_resolution 为基准，"
-                "运行时按实际分辨率等比缩放。stop_game_when_idle 控制任务结束后是否关闭游戏。"
+            settings["_comment"] = (
+                "锁屏密码请在 BAAS 界面的「Android 运行设置」里填写；"
+                "这里只放与设备分辨率相关的滑动/按键坐标，ref_resolution 为基准分辨率。"
             )
-            path.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+            path.write_text(json.dumps(settings, ensure_ascii=False, indent=2), encoding="utf-8")
         except OSError:
             pass
-    return config
+    return settings
 
 
 class AndroidPower:
     """封装唤醒、解锁、停游戏的开关。``u2`` 为 uiautomator2 连接。"""
 
-    def __init__(self, u2, logger, project_root: Path):
+    def __init__(self, u2, logger, app_config, project_root: Path):
         self.u2 = u2
         self.logger = logger
-        self.config = load_config(project_root)
-        self.enabled = bool(self.config.get("enabled", True))
-        self.password = str(self.config.get("password") or "")
-        self.stop_game_when_idle = bool(self.config.get("stop_game_when_idle", True))
-        self.ref_width, self.ref_height = self._pair(self.config.get("ref_resolution"), (1080, 2400))
+        self.app_config = app_config
+        self.settings = load_settings(project_root)
+        self.password = str(getattr(app_config, "android_unlock_password", "") or "").strip()
+        self.stop_game_when_idle = bool(getattr(app_config, "android_stop_game_when_idle", True))
+        self.ref_width, self.ref_height = self._pair(self.settings.get("ref_resolution"), (1080, 2400))
         self._screen = None  # 实际分辨率，首次使用时探测
 
     # ---------------- 基础工具 ----------------
@@ -147,16 +142,18 @@ class AndroidPower:
     def unlock(self) -> bool:
         """上滑呼出 PIN 盘，逐位点按密码，最后确认是否真的解锁。"""
         if not self.password:
-            self.logger.warning("No unlock password configured, skip unlock.")
+            self.logger.warning(
+                "Unlock password is empty (set android_unlock_password in Android settings)."
+            )
             return not self.is_locked()
-        swipe = self.config.get("swipe") or {}
+        swipe = self.settings.get("swipe") or {}
         start = self._scale(swipe.get("from", [540, 2000]))
         end = self._scale(swipe.get("to", [540, 900]))
         duration = int(swipe.get("duration_ms", 150))
         self._shell(f"input swipe {start[0]} {start[1]} {end[0]} {end[1]} {duration}")
         time.sleep(1.2)
 
-        keypad = self.config.get("keypad") or {}
+        keypad = self.settings.get("keypad") or {}
         for char in self.password:
             point = keypad.get(char)
             if point is None:
@@ -170,12 +167,10 @@ class AndroidPower:
 
     def ensure_ready(self) -> bool:
         """确保屏幕点亮且已解锁。返回是否达成。"""
-        if not self.enabled:
-            return True
         self.wake()
         if not self.is_locked():
             return True
-        retry = max(1, int(self.config.get("unlock_retry", 2)))
+        retry = max(1, int(self.settings.get("unlock_retry", 2)))
         for attempt in range(1, retry + 1):
             self.logger.info(f"Device locked, unlocking ({attempt}/{retry}).")
             if self.unlock():
