@@ -1,6 +1,7 @@
 from pythonforandroid.recipe import Recipe, MesonRecipe
 from pythonforandroid.logger import error
-from os.path import join
+from os.path import join, dirname
+import glob
 import shutil
 
 NUMPY_NDK_MESSAGE = "In order to build numpy, you must set minimum ndk api (minapi) to `24`.\n"
@@ -9,8 +10,22 @@ NUMPY_NDK_MESSAGE = "In order to build numpy, you must set minimum ndk api (mina
 class NumpyRecipe(MesonRecipe):
     version = 'v1.26.5'
     url = 'git+https://github.com/numpy/numpy'
-    hostpython_prerequisites = ["Cython>=3.0.6"]  # meson does not detects venv's cython
-    extra_build_args = ['-Csetup-args=-Dblas=none', '-Csetup-args=-Dlapack=none']
+    # p4a 的 PyProjectRecipe 用 `python -m build --wheel`，默认开启 PEP517 构建隔离；
+    # 而 PythonRecipe.get_recipe_env 把 PYTHONPATH 指向交叉编译 hostpython3 的源码 Lib/，
+    # 那里只有 .py 没有 C 扩展。隔离环境里 mesonpy 一 import subprocess 就报
+    # "ModuleNotFoundError: No module named '_posixsubprocess'"。
+    # 关掉隔离，直接让后端跑在已能正常工作的 hostpython3 里。版本按 numpy v1.26.5
+    # 的 pyproject.toml [build-system].requires 精确固定。
+    hostpython_prerequisites = [
+        "Cython>=3.0.6,<3.1",
+        "meson-python>=0.15.0,<0.16.0",
+    ]
+    extra_build_args = [
+        '-Csetup-args=-Dblas=none',
+        '-Csetup-args=-Dlapack=none',
+        '--no-isolation',
+        '--skip-dependency-check',
+    ]
     need_stl_shared = True
 
     def get_recipe_meson_options(self, arch):
@@ -34,6 +49,23 @@ class NumpyRecipe(MesonRecipe):
         env["NPY_DISABLE_SVML"] = "1"
         env["TARGET_PYTHON_EXE"] = join(Recipe.get_recipe(
                 "python3", self.ctx).get_build_dir(arch.arch), "android-build", "python")
+
+        # 兜底：万一 build 仍创建了隔离环境，把 hostpython3 实际编译出的 C 扩展
+        # 目录（_posixsubprocess / _struct / select ...）补进 PYTHONPATH。
+        # p4a 只加了源码 Lib/ 和顶层 build/，扩展常编在 native-build 下而漏掉。
+        try:
+            host_root = dirname(dirname(self.real_hostpython_location))
+            so_dirs = {
+                dirname(so) for so in glob.glob(
+                    join(host_root, '**', '_posixsubprocess*.so'), recursive=True)
+            }
+            pythonpath = env.get('PYTHONPATH', '')
+            for lib_dir in so_dirs:
+                if lib_dir not in pythonpath.split(':'):
+                    pythonpath = lib_dir + ':' + pythonpath
+            env['PYTHONPATH'] = pythonpath
+        except Exception:
+            pass
         return env
 
     def download_if_necessary(self):
