@@ -690,6 +690,12 @@ if __name__ == '__main__':
             install_touch_keyboard(app)
         except Exception as e:
             print("touch keyboard init failed: %s" % e)
+        # 下拉框同理：qfluentwidgets 的 popup 是顶层窗口，Android 上显示不出来
+        try:
+            from gui.util.touch_combo import install as install_touch_combo
+            install_touch_combo()
+        except Exception as e:
+            print("touch combo init failed: %s" % e)
 
     # internationalization
     translator = FluentTranslator(bt.locale)

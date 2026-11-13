@@ -33,7 +33,8 @@ _PANELS = {
         [("1", 1, "1"), ("2", 1, "2"), ("3", 1, "3"), ("4", 1, "4"), ("5", 1, "5")],
         [("6", 1, "6"), ("7", 1, "7"), ("8", 1, "8"), ("9", 1, "9"), ("0", 1, "0")],
         [(".", 1, "."), ("-", 1, "-"), (">", 1, ">"), ("(", 1, "("), (")", 1, ")")],
-        [("退格", 1, "back"), ("清空", 1, "clear"), ("ABC", 1, "alpha"), ("完成", 2, "done")],
+        [("退格", 1, "back"), ("清空", 1, "clear"), ("中文", 1, "ime"),
+         ("ABC", 1, "alpha"), ("完成", 1, "done")],
     ],
     "alpha": [
         [("A", 1, "A"), ("B", 1, "B"), ("C", 1, "C"), ("D", 1, "D"), ("E", 1, "E"),
@@ -42,7 +43,7 @@ _PANELS = {
          ("P", 1, "P"), ("Q", 1, "Q"), ("R", 1, "R"), ("S", 1, "S"), ("T", 1, "T")],
         [("U", 1, "U"), ("V", 1, "V"), ("W", 1, "W"), ("X", 1, "X"), ("Y", 1, "Y"),
          ("Z", 1, "Z"), ("空格", 1, " "), (".", 1, "."), (">", 1, ">"), ("退格", 1, "back")],
-        [("清空", 2, "clear"), ("123", 2, "num"), ("完成", 2, "done")],
+        [("清空", 2, "clear"), ("中文", 2, "ime"), ("123", 2, "num"), ("完成", 4, "done")],
     ],
 }
 
@@ -168,6 +169,9 @@ class TouchKeyboard(QWidget):
             self._rebuild(action)
             self._relayout()
             return
+        if action == "ime":
+            self._open_native_input()
+            return
         if w is None:
             return
 
@@ -190,8 +194,49 @@ class TouchKeyboard(QWidget):
                 w.insertPlainText(action)
         self._refresh_preview()
 
-    # ---------- 定位 ----------
+    def _open_native_input(self):
+        """中文输入：交给 Android 原生 EditText，输入完回填到 Qt 控件。"""
+        w = self._target
+        if w is None:
+            return
+        try:
+            from gui.util import android_input
+        except Exception:
+            android_input = None
+        if android_input is None or not android_input.available():
+            # 没有原生通道（桌面端 / jnius 不可用）就退到字母面板
+            self._rebuild("alpha")
+            self._relayout()
+            return
 
+        initial = self._current_text()
+        multiline = not isinstance(w, QLineEdit)
+        # 原生对话框会整个盖在 Qt 窗口上，键盘先收起来
+        self.hide()
+
+        def _done(text):
+            if text is None:
+                return
+            widget = self._target
+            if widget is None:
+                return
+            text = str(text)
+            try:
+                if isinstance(widget, QLineEdit):
+                    widget.setText(text)
+                else:
+                    widget.setPlainText(text)
+                # 有些字段（confirm=False 的 text）只在 editingFinished 时落盘，
+                # 手工 emit 一次，等价于用户敲完回车/点别处
+                signal = getattr(widget, "editingFinished", None)
+                if signal is not None:
+                    signal.emit()
+            except Exception:
+                pass
+
+        android_input.prompt("输入内容", initial, _done, multiline=multiline)
+
+    # ---------- 定位 ----------
     def _relayout(self):
         parent = self.parentWidget()
         if parent is None:
@@ -257,8 +302,17 @@ def install(app=None):
     def _on_focus_changed(_old, new):
         if _is_keyboard_target(new):
             keyboard.show_for(new)
-        else:
-            keyboard.hide()
+            return
+        # Android 上点键盘按钮（NoFocus）时 Qt 仍可能报一次「焦点变成 None」，
+        # 但输入框自己还持有焦点；这种假失焦不能收键盘，否则按一个键就消失。
+        if keyboard.isVisible() and keyboard._target is not None:
+            try:
+                if keyboard._target.hasFocus():
+                    return
+            except RuntimeError:
+                # 控件已被销毁
+                pass
+        keyboard.hide()
 
     app.focusChanged.connect(_on_focus_changed)
     return keyboard
