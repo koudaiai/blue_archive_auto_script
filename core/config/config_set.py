@@ -3,6 +3,7 @@ import os
 import re
 from core.config.generated_user_config import Config
 from core.config.generated_static_config import StaticConfig
+from core.config import persist
 from gui.util.customized_ui import BoundComponent
 from gui.util.translator import baasTranslator as bt
 from dataclasses import asdict
@@ -76,6 +77,8 @@ class ConfigSet:
         data = asdict(self.config)
         with open(os.path.join(self.config_dir, "config.json"), 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
+        # Android 上升级 APK 会清空 ./config，这里同步一份到私有目录根（桌面端空转）
+        persist.snapshot_config(self.config_dir)
 
     def dynamic_update(self, key):
         if key not in self.inject_config_list: return

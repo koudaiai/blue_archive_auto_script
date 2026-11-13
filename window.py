@@ -16,7 +16,7 @@ from qfluentwidgets import FluentIcon as FIF, FluentTranslator, SplashScreen, MS
     RoundMenu, Action, MenuAnimationType, MessageBoxBase, LineEdit
 from qfluentwidgets import (SubtitleLabel, setFont)
 
-from core.config import default_config
+from core.config import default_config, persist
 from gui.components.dialog_panel import CreateSettingMessageBox
 from gui.fragments.process import ProcessFragment
 from gui.fragments.readme import ReadMeWindow
@@ -419,6 +419,8 @@ class Window(MSFluentWindow):
         if len(self.config_dir_list) == 0:
             check_config('default_config')
             self.config_dir_list.append(ConfigSet('default_config'))
+        # Android: 首次安装时把生成好的配置备份到私有目录根，升级 APK 后可还原
+        persist.snapshot_all(os.getcwd())
         self.ocr_needed = ['en-us']
         for config in self.config_dir_list:
             if config.server_mode == "CN":

@@ -82,9 +82,22 @@ if TARGET_BRANCH is None:
     if arch not in arch_map:
         raise Exception("Unsupported machine architecture " + arch)
     TARGET_BRANCH = arch_map[arch]
-SERVER_BIN_DIR = os.path.join(SERVER_INSTALLER_DIR_PATH, "bin-android", TARGET_BRANCH) if TARGET_BRANCH.startswith(
-    "android-"
-) else os.path.join(SERVER_INSTALLER_DIR_PATH, "bin")
+# 旧版本把 Android 运行时装在 core/ocr/baas_ocr_client/bin-android/<branch>，而它在
+# <filesDir>/app 内部：p4a 每次升级 APK 都会先清空 <filesDir>/app 再解压 private.tar，
+# 于是 119MB 运行时每次升级都要重下。Android 上改放 <filesDir>/ocr-runtime/<branch>，
+# 位于 app 子树之外，升级不受影响。
+ANDROID_LEGACY_BIN_DIR = os.path.join(SERVER_INSTALLER_DIR_PATH, "bin-android", TARGET_BRANCH)
+if TARGET_BRANCH.startswith("android-"):
+    _internal_files_dir = os.getenv("BAAS_ANDROID_INTERNAL_FILES_DIR", "").strip()
+    ANDROID_RUNTIME_DIR = (
+        os.path.join(_internal_files_dir, "ocr-runtime", TARGET_BRANCH)
+        if _internal_files_dir
+        else ANDROID_LEGACY_BIN_DIR
+    )
+    SERVER_BIN_DIR = ANDROID_RUNTIME_DIR
+else:
+    ANDROID_RUNTIME_DIR = ""
+    SERVER_BIN_DIR = os.path.join(SERVER_INSTALLER_DIR_PATH, "bin")
 ANDROID_VERSION_FILE = os.path.join(SERVER_BIN_DIR, ".baas-ocr-prebuild-sha")
 
 def _is_android_runtime() -> bool:
@@ -106,10 +119,8 @@ def _server_binary_path() -> str:
 
 
 def _android_internal_runtime_root() -> str:
-    internal_root = os.getenv("BAAS_ANDROID_INTERNAL_FILES_DIR", "").strip()
-    if not internal_root:
-        return ""
-    return os.path.join(internal_root, "ocr-runtime", TARGET_BRANCH)
+    """app 子树之外的运行时目录；与 SERVER_BIN_DIR 同一位置（保留此函数供语义化调用）。"""
+    return ANDROID_RUNTIME_DIR
 
 
 def _android_internal_binary_path() -> str:
@@ -218,9 +229,45 @@ def _force_rmtree(root: str) -> None:
     shutil.rmtree(root, ignore_errors=True)
 
 
+def _migrate_legacy_android_runtime(logger=None) -> None:
+    """把旧布局里的运行时搬到 ocr-runtime，避免升级后白重下 100+MB。
+
+    旧版本装在 <filesDir>/app/.../bin-android/<branch>，升级 APK 时会被解压清空；
+    新布局在 <filesDir>/ocr-runtime/<branch>。只在目标位置还没有 .so 时搬，
+    且失败也不致命——退回下载即可。
+    """
+    if not ANDROID_RUNTIME_DIR or ANDROID_RUNTIME_DIR == ANDROID_LEGACY_BIN_DIR:
+        return
+    # 主 .so 与 sha 标记都在才算迁移完成：只有 .so 可能是上次迁移中途断掉，
+    # 那种情况要整体重搬，否则会缺依赖库却以为已经装好。
+    if os.path.exists(_server_binary_path()) and os.path.exists(ANDROID_VERSION_FILE):
+        return
+    legacy_binary = os.path.join(
+        ANDROID_LEGACY_BIN_DIR, "lib", _android_library_abi_dir(), "libBAAS_ocr_server.so"
+    )
+    if not os.path.exists(legacy_binary):
+        return
+    try:
+        if os.path.exists(ANDROID_RUNTIME_DIR):
+            _force_rmtree(ANDROID_RUNTIME_DIR)
+        shutil.copytree(ANDROID_LEGACY_BIN_DIR, ANDROID_RUNTIME_DIR)
+        _relax_tree_permissions(ANDROID_RUNTIME_DIR)
+        binary = _server_binary_path()
+        if os.path.exists(binary):
+            os.chmod(binary, os.stat(binary).st_mode | 0o755)
+        if logger is not None:
+            logger.info("Migrated Android Ocr Server runtime out of app-private bundle.")
+    except Exception as error:  # noqa: BLE001 - 迁移只是优化，失败就走正常下载
+        if logger is not None:
+            logger.warning(f"Failed to migrate Android OCR runtime ({error}); will reinstall.")
+
+
 def _install_android_prebuild(logger) -> None:
     if not TARGET_BRANCH.startswith("android-"):
         raise OcrInternalError(f"Invalid Android OCR branch: {TARGET_BRANCH}")
+
+    # 先搬旧布局的运行时（升级场景），后面的 sha 判断就能直接命中、无需下载
+    _migrate_legacy_android_runtime(logger)
 
     remote_sha = _get_android_remote_sha(TARGET_BRANCH)
     local_sha = _read_android_installed_sha()

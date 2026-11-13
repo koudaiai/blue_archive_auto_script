@@ -10,8 +10,21 @@ class Main:
         self.logger = Logger(logger_signal)
         self.project_dir = os.path.abspath(os.path.dirname(__file__))
         self.logger.info(self.project_dir)
+        self.restore_user_config()
         self.init_all_data()
         self.threads = {}
+
+    def restore_user_config(self):
+        """Android: p4a 每次升级 APK 都会清空 ./config，
+        初始化之前把用户配置从私有目录根还原回来。桌面端无此机制，直接空转。
+        """
+        try:
+            from core.config import persist
+            restored = persist.restore_configs(self.project_dir)
+            if restored:
+                self.logger.info(f"Restored {restored} user config file(s).")
+        except Exception as e:  # noqa: BLE001 - 还原失败不能阻断启动
+            self.logger.warning(f"Failed to restore user config: {e}")
 
     def init_all_data(self):
         if not self.init_ocr():
