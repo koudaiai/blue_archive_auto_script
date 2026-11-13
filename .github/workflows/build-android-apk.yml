@@ -60,9 +60,9 @@ jobs:
             fi
           done
           echo "Hook assets verified."
-          # 这些扩展名必须留在 source.include_exts 里，否则文件进不了构建目录
-          grep -q 'source.include_exts.*xml' deploy/android/buildozer.templ.spec \
-            || { echo "::error::source.include_exts must include xml/java/gradle/aidl, or p4a_hook will FileNotFoundError"; exit 1; }
+          # 前台服务靠 hook 注入 <application>，没有这个函数就等于没有保活
+          grep -q 'def _patch_foreground_service' deploy/android/p4a_hook.py \
+            || { echo "::error::p4a_hook.py must define _patch_foreground_service"; exit 1; }
 
       - name: Setup Python 3.9
         uses: actions/setup-python@v6
