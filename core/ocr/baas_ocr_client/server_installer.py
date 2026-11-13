@@ -8,7 +8,10 @@ import tempfile
 import zipfile
 from typing import Optional
 
-import pygit2
+try:
+    import pygit2
+except ImportError:  # Android APK 不含 pygit2；OCR 服务更新会退化为不可用
+    pygit2 = None  # type: ignore[assignment]
 import requests
 from deploy.installer.git_backend import (
     clone_repository, ensure_origin, fetch_and_reset_branch, install_staged_repository, remote_branch_sha,
@@ -70,10 +73,12 @@ branch_map = {
     "linux": {"x86_64": "linux-x64"},
     "darwin": {"arm64": "macos-arm64"},
 }
+# 模块级 arch 必须始终存在：Client.py 有 `from ... import arch`。
+# 原实现只在非 Android 分支里赋值，Android 上会 ImportError。
+arch = platform.machine().lower()
 TARGET_BRANCH = _android_ocr_branch()
 if TARGET_BRANCH is None:
     arch_map = branch_map[sys.platform]
-    arch = platform.machine().lower()
     if arch not in arch_map:
         raise Exception("Unsupported machine architecture " + arch)
     TARGET_BRANCH = arch_map[arch]

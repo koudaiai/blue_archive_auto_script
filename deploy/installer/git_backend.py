@@ -16,13 +16,29 @@ from urllib.request import getproxies, proxy_bypass
 from urllib.parse import urlsplit
 import tempfile
 
-import pygit2
-from pygit2.enums import ResetMode
+try:
+    import pygit2
+    from pygit2.enums import ResetMode
+except ImportError:  # Android APK 不含 pygit2（无 libgit2 配方），仅影响「代码自更新」功能
+    pygit2 = None  # type: ignore[assignment]
+    ResetMode = None  # type: ignore[assignment]
 
 
-class NonInteractiveCallbacks(pygit2.RemoteCallbacks):
-    def credentials(self, url, username_from_url, allowed_types):
-        raise pygit2.GitError("Git authentication failed: credentials are required (interactive prompts disabled)")
+def require_pygit2():
+    """代码自更新在缺少 pygit2 的平台上不可用，调用时给出明确错误。"""
+    if pygit2 is None:
+        raise RuntimeError("pygit2 is not available on this platform (self-update disabled)")
+    return pygit2
+
+
+if pygit2 is not None:
+    class NonInteractiveCallbacks(pygit2.RemoteCallbacks):
+        def credentials(self, url, username_from_url, allowed_types):
+            raise pygit2.GitError("Git authentication failed: credentials are required (interactive prompts disabled)")
+else:  # pragma: no cover - Android 等无 pygit2 的平台
+    class NonInteractiveCallbacks:  # type: ignore[no-redef]
+        def __init__(self, *args, **kwargs):
+            require_pygit2()
 
 
 def git_proxy(url: str):

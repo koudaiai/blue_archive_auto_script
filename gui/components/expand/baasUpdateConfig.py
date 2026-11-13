@@ -2,7 +2,10 @@ import threading
 import time
 import webbrowser
 
-import pygit2
+try:
+    import pygit2
+except ImportError:  # Android APK 不含 pygit2，更新页的 git 相关能力降级
+    pygit2 = None  # type: ignore[assignment]
 import requests
 from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt5.QtGui import QColor

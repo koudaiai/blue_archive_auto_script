@@ -4,7 +4,13 @@ from copy import deepcopy
 from datetime import datetime
 from functools import partial
 
-from PyQt5 import sip
+try:  # PyQt5 桌面环境
+    from PyQt5 import sip
+except Exception:  # Android 用 PySide6，没有 sip 模块（qtpy 会抛 QtBindingMissingModuleError）
+    try:
+        import shiboken6 as sip  # shiboken6.delete 语义与 sip.delete 一致
+    except ImportError:  # 极端兜底：没有绑定层时退化为延迟销毁
+        sip = None
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QWidget, QHBoxLayout, QHeaderView, QVBoxLayout
 from qfluentwidgets import CheckBox, TableWidget, PushButton, ComboBox, CaptionLabel, MessageBoxBase, \
@@ -322,7 +328,10 @@ class Layout(QWidget):
                     continue
                 self.tableView.setCellWidget(row, col, None)
                 widget.setParent(None)
-                sip.delete(widget)
+                if sip is not None:
+                    sip.delete(widget)
+                else:
+                    widget.deleteLater()
 
     def _update_config(self):
         for i in range(len(self.enable_list)):
