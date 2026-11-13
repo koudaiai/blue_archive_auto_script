@@ -1,0 +1,3 @@
+<service android:name="org.baas.boa.BaasForegroundService"
+         android:exported="false"
+         android:foregroundServiceType="dataSync" />

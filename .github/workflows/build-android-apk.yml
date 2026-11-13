@@ -43,13 +43,26 @@ jobs:
           # 选错分支（尤其选回上游 pur1fy_dev）时立刻失败，别浪费 90 分钟编译
           for f in android_main.py core/android/power.py core/android/foreground.py \
                     gui/components/expand/androidConfig.py \
-                    deploy/android/src/main/java/org/baas/boa/BaasForegroundService.java; do
+                    deploy/android/src/main/java/org/baas/boa/BaasForegroundService.java \
+                    deploy/android/foreground_service.xml deploy/android/p4a_hook.py; do
             if [ ! -f "$f" ]; then
               echo "::error::Missing $f - wrong branch, need test/dev-merge (self-modified Android code)"
               exit 1
             fi
           done
           echo "Android runtime sources verified."
+          # p4a_hook 在 before_apk_assemble 读这些片段，缺任何一项都会在最后阶段炸掉
+          for f in deploy/android/crash_manifest.xml deploy/android/shizuku_provider.xml \
+                    deploy/android/provider_paths.xml deploy/android/patches/frag.build.gradle; do
+            if [ ! -f "$f" ]; then
+              echo "::error::Missing hook asset $f"
+              exit 1
+            fi
+          done
+          echo "Hook assets verified."
+          # 前台服务靠 hook 注入 <application>，没有这个函数就等于没有保活
+          grep -q 'def _patch_foreground_service' deploy/android/p4a_hook.py \
+            || { echo "::error::p4a_hook.py must define _patch_foreground_service"; exit 1; }
 
       - name: Setup Python 3.9
         uses: actions/setup-python@v6

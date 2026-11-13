@@ -11,6 +11,7 @@ JAVA_SRC_PATH = os.path.join(BASE_DIR, 'src', 'main', 'java')
 AIDL_SRC_PATH = os.path.join(BASE_DIR, 'src', 'main', 'aidl')
 CRASH_MANIFEST_PATH = os.path.join(BASE_DIR, 'crash_manifest.xml')
 PROVIDER_PATHS_SRC = os.path.join(BASE_DIR, 'provider_paths.xml')
+FOREGROUND_SERVICE_MANIFEST_PATH = os.path.join(BASE_DIR, 'foreground_service.xml')
 
 def _read(path: str) -> str:
     with open(path, 'r', encoding='utf-8') as f:
@@ -53,6 +54,29 @@ def _patch_manifest(manifest_path: str):
     _write(manifest_path, content)
     info(f'Successfully patched {manifest_path}.')
 
+def _patch_foreground_service(manifest_path: str):
+    """把常驻前台服务的 <service> 声明注入 <application> 内部。
+
+    buildozer 的 android.extra_manifest_application_arguments 只能渲染到
+    <application> 的属性位置，塞不进子元素；所以在这里做。
+    """
+    if not os.path.exists(manifest_path):
+        info(f'Manifest {manifest_path} not found, skip foreground service injection.')
+        return
+    content = _read(manifest_path)
+    if 'BaasForegroundService' in content:
+        info(f'{manifest_path} already declares BaasForegroundService, skipping injection.')
+        return
+    marker = '</application>'
+    if marker not in content:
+        # 没有 application 关闭标签说明 manifest 结构异常，静默产出「无前台服务」的包
+        # 会让熄屏保活功能悄悄失效，这里直接中断构建。
+        raise ValueError(f"Could not find '{marker}' in {manifest_path}")
+    snippet = _read(FOREGROUND_SERVICE_MANIFEST_PATH)
+    parts = content.rsplit(marker, 1)
+    _write(manifest_path, f'{parts[0]}{snippet}\n{marker}{parts[1]}')
+    info(f'Injected BaasForegroundService into {manifest_path}.')
+
 def _copy_src():
     # 复制 Java
     info(f'Copying java src...')
@@ -79,4 +103,6 @@ def before_apk_assemble(toolchain):
     _patch_build_gradle(build_gradle)
     _patch_manifest(manifest1)
     _patch_manifest(manifest2)
+    _patch_foreground_service(manifest1)
+    _patch_foreground_service(manifest2)
     _copy_src()
