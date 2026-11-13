@@ -24,9 +24,24 @@ class DisplayInfo(NamedTuple):
 
 def extract_virtual_displays(dump_content: str):
     """
-    Extract virtual display information from the given dumpsys SurfaceFlinger log content.
+    Extract virtual display information from ``dumpsys display`` output,
+    falling back to the legacy ``dumpsys SurfaceFlinger`` layout.
+
+    Android 12+ 的 ``dumpsys display`` 会直接给出 DisplayManager 的 display id，
+    这正是 ``input -d`` / ``screencap -d`` 需要的值：
+
+        mBaseDisplayInfo=DisplayInfo{"叠加视图 #1", displayId 4", ..., type OVERLAY,
+                                     uniqueId "overlay:1", ..., layerStack 4, ...}
     """
-    # Target：Display 11529... (virtual, "<name>") ... layerStack=25
+    pattern = re.compile(
+        r'mBaseDisplayInfo=DisplayInfo\{[^\n]*?displayId\s+(\d+)"[^\n]*?type\s+OVERLAY',
+    )
+    match = pattern.search(dump_content)
+    if match:
+        display_id = match.group(1)
+        return DisplayInfo(logical_id=display_id, stable_id=display_id)
+
+    # 旧格式：Display 11529... (virtual, "<name>") ... layerStack=25
     pattern = re.compile(
         r'^Display\s+(\d+)\s+\(virtual,\s+"([^"]+)"\)'
         r'(?:.|\n)*?'

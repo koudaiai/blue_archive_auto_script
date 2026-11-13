@@ -15,8 +15,9 @@ class Main:
 
     def init_all_data(self):
         if not self.init_ocr():
-            self.logger.error("Ocr Init Incomplete Please restart .")
-            return
+            # OCR 只影响需要识别的任务；稳定性测试（定时开关游戏）完全不用 OCR。
+            # 这里不再直接 return，否则 static_config 不会初始化，GUI 与启动按钮全部失效。
+            self.logger.error("Ocr Init Incomplete: 继续初始化，OCR 相关任务不可用")
         self.init_static_config()
         self.logger.info("-- All Data Initialization Complete Script ready--")
 

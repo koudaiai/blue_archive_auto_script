@@ -190,6 +190,34 @@ def _find_android_archive_root(extract_root: str) -> str:
     raise OcrInternalError("Android OCR prebuild archive does not contain libBAAS_ocr_server.so")
 
 
+def _relax_tree_permissions(root: str) -> None:
+    """把 OCR 运行时目录树放开到 app 自己可读写。
+
+    预编译包里的目录权限来自压缩包，可能是 0555/0444；Android 的 app 私有目录
+    一旦出现只读子目录，后续更新时的 rmtree/copytree 就会 [Errno 13] Permission denied。
+    """
+    for current_root, dirs, files in os.walk(root):
+        try:
+            os.chmod(current_root, 0o700)
+        except OSError:
+            pass
+        for name in dirs + files:
+            target = os.path.join(current_root, name)
+            try:
+                mode = 0o700 if os.path.isdir(target) else 0o600
+                os.chmod(target, mode)
+            except OSError:
+                pass
+
+
+def _force_rmtree(root: str) -> None:
+    """先放开权限再删除；rmtree(ignore_errors=True) 会因为只读子目录静默失败。"""
+    if not os.path.exists(root):
+        return
+    _relax_tree_permissions(root)
+    shutil.rmtree(root, ignore_errors=True)
+
+
 def _install_android_prebuild(logger) -> None:
     if not TARGET_BRANCH.startswith("android-"):
         raise OcrInternalError(f"Invalid Android OCR branch: {TARGET_BRANCH}")
@@ -211,28 +239,56 @@ def _install_android_prebuild(logger) -> None:
     if not remote_sha and local_sha and os.path.exists(server_binary_path):
         logger.warning("Android OCR remote SHA unavailable; using installed prebuild.")
         return
+    if not remote_sha and os.path.exists(server_binary_path):
+        # 拿不到远端 SHA（离线/被墙）但本地已有可用的 .so：直接复用，别再重复下载
+        logger.warning("Android OCR remote SHA unavailable; reusing existing runtime.")
+        return
 
     logger.info(f"Installing Android Ocr Server prebuild for {TARGET_BRANCH}.")
-    with tempfile.TemporaryDirectory(prefix="baas-ocr-android-") as tmp:
-        archive_path = os.path.join(tmp, "ocr-prebuild.zip")
-        source_url = _download_android_archive(TARGET_BRANCH, archive_path, logger)
-        extract_root = os.path.join(tmp, "extract")
-        os.makedirs(extract_root, exist_ok=True)
-        with zipfile.ZipFile(archive_path) as archive:
-            archive.extractall(extract_root)
-        source_root = _find_android_archive_root(extract_root)
-        if os.path.exists(SERVER_BIN_DIR):
-            shutil.rmtree(SERVER_BIN_DIR, ignore_errors=True)
-        shutil.copytree(source_root, SERVER_BIN_DIR)
+    installed_from = remote_sha or ""
+    update_error: Optional[Exception] = None
+    try:
+        with tempfile.TemporaryDirectory(prefix="baas-ocr-android-") as tmp:
+            archive_path = os.path.join(tmp, "ocr-prebuild.zip")
+            source_url = _download_android_archive(TARGET_BRANCH, archive_path, logger)
+            installed_from = remote_sha or source_url
+            extract_root = os.path.join(tmp, "extract")
+            os.makedirs(extract_root, exist_ok=True)
+            with zipfile.ZipFile(archive_path) as archive:
+                archive.extractall(extract_root)
+            source_root = _find_android_archive_root(extract_root)
+            if os.path.exists(SERVER_BIN_DIR):
+                _force_rmtree(SERVER_BIN_DIR)
+            # dirs_exist_ok：即使上一步没删干净也能覆盖，不会因为目标目录已存在直接抛错
+            shutil.copytree(source_root, SERVER_BIN_DIR, dirs_exist_ok=True)
+            _relax_tree_permissions(SERVER_BIN_DIR)
+    except Exception as error:
+        update_error = error
 
-    if os.path.exists(server_binary_path):
-        os.chmod(server_binary_path, os.stat(server_binary_path).st_mode | 0o755)
-    else:
-        raise OcrInternalError("Android OCR prebuild did not install libBAAS_ocr_server.so")
+    # 二进制只要有就先把权限和 sha 标记补齐，再决定算不算失败。
+    # TemporaryDirectory 退出时清理临时目录，解压出来的只读子目录可能让它抛错；
+    # 那样 .so 已经落盘了，却会跳过 chmod 与写标记，导致每次启动都重新下载 100+MB。
+    installed_ok = os.path.exists(server_binary_path) and os.path.getsize(server_binary_path) > 1 << 20
+    if installed_ok:
+        try:
+            os.chmod(server_binary_path, os.stat(server_binary_path).st_mode | 0o755)
+        except OSError:
+            pass
+        if installed_from:
+            try:
+                with open(ANDROID_VERSION_FILE, "w", encoding="utf-8") as fp:
+                    fp.write(installed_from)
+            except OSError as error:
+                logger.warning(f"Failed to record Android OCR prebuild sha: {error}")
+        if update_error is not None:
+            logger.warning(f"Android OCR prebuild update failed ({update_error}); using existing runtime.")
+        else:
+            logger.info("Ocr Server Install success.")
+        return
 
-    with open(ANDROID_VERSION_FILE, "w", encoding="utf-8") as fp:
-        fp.write(remote_sha or source_url)
-    logger.info("Ocr Server Install success.")
+    if update_error is not None:
+        raise OcrInternalError(str(update_error)) from update_error
+    raise OcrInternalError("Android OCR prebuild did not install libBAAS_ocr_server.so")
 
 
 class OcrRepoManager:

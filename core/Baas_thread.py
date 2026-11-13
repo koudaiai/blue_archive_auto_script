@@ -490,21 +490,47 @@ class Baas_thread:
             return False
         return bool(getattr(self.config, "android_test_mode", False))
 
+    def _android_resolve_launcher_activity(self) -> str:
+        """向系统查询当前安装包真实的 launcher activity。
+
+        国服换过一次 SDK：旧包入口是 com.yostar.sdk.bridge.YoStarUnityPlayerActivity，
+        新包换成 com.tech.core.TechSplashActivity。配置里的类名写死会随版本失效，
+        所以启动失败时回退到系统解析结果。
+        """
+        output = getattr(
+            self.u2.shell(f"cmd package resolve-activity --brief {self.package_name}"), "output", ""
+        ) or ""
+        for line in reversed(output.strip().splitlines()):
+            line = line.strip()
+            if "/" in line and "=" not in line.split("/")[0]:
+                return line.split("/", 1)[1]
+        return ""
+
     def _android_start_game(self) -> bool:
         """把游戏启动到虚拟屏（display id 来自 _setup_boa）。"""
         display = getattr(self, "target_display", None)
         if display is None:
             self.logger.warning("No virtual display available, skip starting game.")
             return False
-        command = (
-            f"am start --display {display.logical_id} "
-            f"-n {self.package_name}/{self.activity_name}"
-        )
-        self.logger.info("start game: " + command)
-        output = getattr(self.u2.shell(command), "output", "") or ""
+
+        def _start(activity: str):
+            command = f"am start --display {display.logical_id} -n {self.package_name}/{activity}"
+            self.logger.info("start game: " + command)
+            return getattr(self.u2.shell(command), "output", "") or ""
+
+        output = _start(self.activity_name)
         failed = "Error" in output or "Exception" in output
         if failed:
             self.logger.warning("start game failed: " + output.strip()[:200])
+            resolved = self._android_resolve_launcher_activity()
+            if resolved and resolved != self.activity_name:
+                self.logger.info("resolve launcher activity: " + resolved)
+                output = _start(resolved)
+                failed = "Error" in output or "Exception" in output
+                if not failed:
+                    self.activity_name = resolved
+                else:
+                    self.logger.warning("start game failed again: " + output.strip()[:200])
         return not failed
 
     def _android_wait_for_picture(self, timeout: float = 120.0) -> bool:
@@ -1430,9 +1456,15 @@ class Baas_thread:
         # TODO: further tests for overlay_display_devices on DIFFERENT DEVICES are needed
         self.u2.shell("settings put global overlay_display_devices 1280x720/240")
         time.sleep(1)
-        # get display id
-        display_info = self.u2.shell("dumpsys SurfaceFlinger") # to get stable id
+        # 优先用 dumpsys display：它直接暴露 DisplayManager 的 display id，
+        # 也就是 input -d / screencap -d 接受的值。SurfaceFlinger 的
+        # DisplayDevice 只有内部 token 和 layerStack，Android 12 上 layerStack
+        # 恒为 0，用它会把操作打到主屏上。
+        display_info = self.u2.shell("dumpsys display")
         self.target_display = extract_virtual_displays(display_info.output)
+        if not self.target_display:
+            display_info = self.u2.shell("dumpsys SurfaceFlinger")  # 旧系统兜底
+            self.target_display = extract_virtual_displays(display_info.output)
         if not self.target_display:
             raise Exception("Failed to create virtual display for BoA.")
         self.control.set_display_id(self.target_display.logical_id)
