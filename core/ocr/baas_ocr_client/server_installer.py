@@ -262,12 +262,40 @@ def _migrate_legacy_android_runtime(logger=None) -> None:
             logger.warning(f"Failed to migrate Android OCR runtime ({error}); will reinstall.")
 
 
-def _install_android_prebuild(logger) -> None:
+def _android_runtime_installed() -> bool:
+    """本地 Android OCR 运行时是否已可用。
+
+    判定与下载完成后的 ``installed_ok`` 保持一致：主 .so 存在且不是空壳。
+    不看 sha 标记——标记只是「备份的版本号」，缺了不影响运行时能用。
+    """
+    binary = _server_binary_path()
+    try:
+        return os.path.exists(binary) and os.path.getsize(binary) > 1 << 20
+    except OSError:
+        return False
+
+
+def _force_update_check_enabled() -> bool:
+    return os.getenv("BAAS_OCR_CHECK_UPDATE_ON_START", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _install_android_prebuild(logger, force_update_check: bool = False) -> None:
     if not TARGET_BRANCH.startswith("android-"):
         raise OcrInternalError(f"Invalid Android OCR branch: {TARGET_BRANCH}")
 
-    # 先搬旧布局的运行时（升级场景），后面的 sha 判断就能直接命中、无需下载
+    # 先搬旧布局的运行时（升级场景），下面的判断就能直接命中、无需下载
     _migrate_legacy_android_runtime(logger)
+
+    # 启动路径默认不联网：本地运行时就绪就直接复用，一次远端请求都不发。
+    # 之前每次冷启动都要打 api.github.com 比对 sha，弱网 / GitHub 不可达时会
+    # 卡满 15s 超时，表现就是「一打开就联网、开得慢」。缺运行时（首装、清数据）
+    # 时仍然走下面的下载流程。需要恢复自动更新时设 BAAS_OCR_CHECK_UPDATE_ON_START=1。
+    if not (force_update_check or _force_update_check_enabled()) and _android_runtime_installed():
+        if _read_android_installed_sha():
+            logger.info("Android Ocr Server runtime already available; skip update check.")
+        else:
+            logger.warning("Android OCR runtime present without sha marker; skip update check.")
+        return
 
     remote_sha = _get_android_remote_sha(TARGET_BRANCH)
     local_sha = _read_android_installed_sha()
@@ -399,12 +427,14 @@ class OcrRepoManager:
                 repo.free()
 
 
-def check_git(logger):
-    """
-    Main entry point to check and update the OCR Server repo.
+def check_git(logger, force_update_check: bool = False):
+    """检查并更新 OCR 服务端运行时。
+
+    Android 上默认只在本地运行时缺失时才联网安装；``force_update_check=True``
+    可恢复「每次都向远端比对 sha」的旧行为（手动更新入口用）。
     """
     if _is_android_runtime():
-        _install_android_prebuild(logger)
+        _install_android_prebuild(logger, force_update_check=force_update_check)
         return
 
     manager = OcrRepoManager(SERVER_BIN_DIR, OCR_SERVER_PREBUILD_URL, TARGET_BRANCH, logger)
@@ -461,7 +491,8 @@ def clone_repo(logger):
     """
     logger.info("Installing Ocr Server, please hang on...")
     if _is_android_runtime():
-        _install_android_prebuild(logger)
+        # 显式安装/更新路径：必须去远端比对，否则重装等于空转
+        _install_android_prebuild(logger, force_update_check=True)
         return
 
     manager = OcrRepoManager(SERVER_BIN_DIR, OCR_SERVER_PREBUILD_URL, TARGET_BRANCH, logger)
