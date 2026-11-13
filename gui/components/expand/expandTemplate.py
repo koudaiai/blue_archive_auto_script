@@ -140,10 +140,15 @@ class TemplateLayout(QWidget):
             elif cfg.type == 'spin':
                 currentKey = cfg.key
                 inputComponent = SpinBox(self)
-                inputComponent.setValue(self.config.get(currentKey))
+                # 顺序必须是先 range 再 value：反过来会被初始范围夹住。
+                # config 里存的是字符串（如 "5"），SpinBox.setValue 只吃 int，
+                # 直接传字符串在 PySide6 上会抛 TypeError 让整页构建失败。
+                selection = cfg.selection if isinstance(cfg.selection, dict) else {}
+                minimum = int(selection.get('min', 0))
+                maximum = int(selection.get('max', 999))
+                inputComponent.setRange(minimum, maximum)
+                inputComponent.setValue(self._to_int(self.config.get(currentKey), minimum))
                 inputComponent.valueChanged.connect(partial(self._commit, currentKey, inputComponent, labelComponent))
-                inputComponent.setMinimum(cfg.selection['min'])
-                inputComponent.setMaximum(cfg.selection['max'])
             elif cfg.type == 'label':
                 inputComponent = QLabel(cfg.selection, self)
             else:
@@ -153,6 +158,14 @@ class TemplateLayout(QWidget):
                 optionPanel.addWidget(selectButton, 0, Qt.AlignRight)
             self.vBoxLayout.addLayout(optionPanel)
             self.vBoxLayout.setContentsMargins(20, 0, 20, 20)
+
+    @staticmethod
+    def _to_int(raw, fallback: int = 0) -> int:
+        """把 config 里的字符串/浮点数安全转成 SpinBox 能接受的 int。"""
+        try:
+            return int(float(str(raw).strip()))
+        except (TypeError, ValueError):
+            return fallback
 
     def _commit(self, key, target, labelTarget, *args):
         # SwitchButton 的 checkedChanged 会带一个 bool，ComboBox 的 currentIndexChanged 会带一个 int。
@@ -166,7 +179,9 @@ class TemplateLayout(QWidget):
         elif isinstance(target, LineEdit):
             value = target.text()
         elif isinstance(target, SpinBox):
-            value = target.value()
+            # 配置定义里这两项是字符串（"4" / "5"），SpinBox 给的是 int，
+            # 统一转回字符串保持 config.json 类型不变，下游 float() 不受影响。
+            value = str(target.value())
         assert value is not None
         if self.context is not None:
             value = bt.undo(value)

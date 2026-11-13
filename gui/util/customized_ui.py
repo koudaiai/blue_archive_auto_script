@@ -188,9 +188,12 @@ class DialogSettingBox(MessageBoxBase):
     _HORIZONTAL_CHROME = 48
     _VERTICAL_CHROME = 129
     _SCREEN_MARGIN = 64
-    # 咖啡厅内容的真实最小宽度。低于 Layout 的 640 竖排断点，
-    # 窄窗口下弹窗才能真正进入竖排而不是溢出屏幕。
-    _CAFE_MIN_WIDTH = 360
+    # 内容区能压到的下限。手机横屏可用高度只有 ~330dp（1080 物理 ÷ 2.75
+    # 密度再减状态栏），扣掉 129 的标题+按钮 chrome 后只剩 ~200dp；
+    # 这两个下限必须足够小，否则 max() 又会把弹窗顶回屏幕外，
+    # 底部确定/取消被切掉、用户无法退出。宁可内容滚动，也不能让按钮跑出去。
+    _CAFE_MIN_WIDTH = 240
+    _CAFE_MIN_HEIGHT = 120
     # 商店弹窗内容区的最小可视高度：保住一行商品可见。
     _SHOP_MIN_HEIGHT = 160
 
@@ -224,9 +227,9 @@ class DialogSettingBox(MessageBoxBase):
         elif setting_name == self._TARGET_CAFE:
             self._init_cafe(frame, layout, parent)
         else:
-            self._init_upstream(frame, layout)
+            self._init_upstream(frame, layout, parent)
 
-    def _init_upstream(self, frame, layout):
+    def _init_upstream(self, frame, layout, parent):
         """Preserve the original geometry for every non-target page."""
         frame.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
         if layout is not None and hasattr(layout, "setSizePolicy"):
@@ -240,7 +243,17 @@ class DialogSettingBox(MessageBoxBase):
         scroll_area.setWidgetResizable(True)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        scroll_area.setFixedWidth(self.width() - 100)
+        available = self._available_geometry(parent)
+        scroll_area.setFixedWidth(
+            max(200, min(self.width() - 100, available.width() - self._SCREEN_MARGIN - 100))
+        )
+        # 内容高的页面（编队、Android 运行设置等）原来不限高，弹窗会撑到屏幕外，
+        # 底部确定/取消跟着被切掉。这里按可用高度封顶，超出交给滚动条。
+        max_content_height = (
+            min(available.height(), self.height()) - self._VERTICAL_CHROME - self._SCREEN_MARGIN
+        )
+        if max_content_height > 0:
+            scroll_area.setMaximumHeight(max_content_height)
         self.viewLayout.addWidget(scroll_area)
 
     def _init_shop(self, frame, layout, parent):
@@ -265,15 +278,24 @@ class DialogSettingBox(MessageBoxBase):
         )
 
     def _init_cafe(self, frame, layout, parent):
+        self._cafe_parent = parent
         available = self._available_geometry(parent)
         parent_width = self._parent_extent(parent, "width", available.width())
         parent_height = self._parent_extent(parent, "height", available.height())
-        width_limit = min(parent_width, available.width()) - self._HORIZONTAL_CHROME - self._SCREEN_MARGIN
-        height_limit = min(parent_height, available.height()) - self._VERTICAL_CHROME - self._SCREEN_MARGIN
-        # 下限取咖啡厅内容的真实最小宽度（低于 640 竖排断点），
-        # 窄窗口下内容宽度能真正跌破断点改走竖排，而不是溢出屏幕。
-        content_width = max(self._CAFE_MIN_WIDTH, min(820, width_limit))
-        content_height = max(360, min(480, height_limit))
+        # 先算「弹窗整体」能占多大，再由它反推内容区。
+        # 之前是直接给定内容区 360 起步再拼 chrome，手机横屏（可用高 330dp
+        # 左右）直接算出 489dp，弹窗上下各溢出 ~48dp，标题和底部按钮组
+        # 一起跑到屏幕外，用户点不到确定/取消也退不出去。
+        total_width_limit = min(parent_width, available.width()) - self._SCREEN_MARGIN
+        total_height_limit = min(parent_height, available.height()) - self._SCREEN_MARGIN
+        content_width = max(
+            self._CAFE_MIN_WIDTH,
+            min(820, total_width_limit - self._HORIZONTAL_CHROME),
+        )
+        content_height = max(
+            self._CAFE_MIN_HEIGHT,
+            min(480, total_height_limit - self._VERTICAL_CHROME),
+        )
 
         frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         if layout is not None:
@@ -294,6 +316,8 @@ class DialogSettingBox(MessageBoxBase):
             content_width + self._HORIZONTAL_CHROME,
             content_height + self._VERTICAL_CHROME,
         )
+        self._cafe_scroll = scroll_area
+        self._cafe_content_height = content_height
 
     def _accelerate_fade_in(self):
         """把配置弹窗的整体弹出动画压到 0.1s 即加载完毕。
@@ -346,7 +370,50 @@ class DialogSettingBox(MessageBoxBase):
         # 先按就绪字体重量高、把弹窗尺寸修正到真实内容高度，再启动
         # 淡入动画：构造期量矮的弹窗会在 show 瞬间长到内容高度。
         self._refit_shop_height()
+        self._clamp_cafe_to_screen()
         self._accelerate_fade_in()
+
+    def keyPressEvent(self, event):
+        """Esc / Back 关闭弹窗。
+
+        Android 上 PythonActivity 的返回键走的是系统 back-to-exit，
+        不会进到 Qt；这条只是桌面端（Esc）和接了返回键的机型上的兜底，
+        真正的解法是让确定/取消始终留在屏幕内（见 _clamp_cafe_to_screen）。
+        keycode 直接写数值：PySide6 里 Qt.Key_Key_Back 这类旧式别名不一定存在。
+        """
+        if int(event.key()) in (0x01000000, 0x01000061):  # Key_Escape / Key_Back
+            self.reject()
+            return
+        super().keyPressEvent(event)
+
+    def _clamp_cafe_to_screen(self):
+        """按弹窗真实高度兜底收口，保证确定/取消留在屏幕内。
+
+        _VERTICAL_CHROME 是经验值（viewLayout 上下各 24 + 81 高的按钮组），
+        QSS、字体倍率或系统字号变化都会让它不准。这里在 show 后用实测高度
+        重算一次，把溢出量从内容区扣掉——按钮区在内容区之下，内容区矮一点
+        只会多出滚动条，而按钮被切掉就完全没法退出弹窗。
+        """
+        scroll = getattr(self, "_cafe_scroll", None)
+        if scroll is None:
+            return
+        available = self._available_geometry(getattr(self, "_cafe_parent", None))
+        if available.height() <= 0:
+            return
+        limit = min(available.height(), self.height()) - self._SCREEN_MARGIN
+        if limit <= 0:
+            return
+        overflow = self.widget.height() - limit
+        if overflow <= 0:
+            return
+        new_height = max(self._CAFE_MIN_HEIGHT, scroll.height() - overflow)
+        if new_height == scroll.height():
+            return
+        scroll.setFixedHeight(new_height)
+        self.widget.setFixedHeight(
+            scroll.width() + self._HORIZONTAL_CHROME,
+            new_height + self._VERTICAL_CHROME,
+        )
 
     @staticmethod
     def _fit_shop_height(layout, width, cap):

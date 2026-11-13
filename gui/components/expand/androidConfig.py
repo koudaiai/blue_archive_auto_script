@@ -27,12 +27,17 @@ class Layout(TemplateLayout):
             {
                 'label': AndroidConfig.tr('测试间隔（小时）'),
                 'key': 'android_test_interval_hours',
-                'type': 'text'
+                # 用 SpinBox 而不是文本框：Android 上软键盘输入不通（Qt 侧的
+                # IME 事件根本没到控件，见 customized_ui 的说明），数值项改成
+                # 点上下箭头就能调，完全不依赖键盘。
+                'type': 'spin',
+                'selection': {'min': 1, 'max': 24}
             },
             {
                 'label': AndroidConfig.tr('每轮开启游戏时长（分钟）'),
                 'key': 'android_test_keep_minutes',
-                'type': 'text'
+                'type': 'spin',
+                'selection': {'min': 1, 'max': 60}
             },
         ]
         super().__init__(parent=parent, configItems=configItems, config=config, context='AndroidConfig')
