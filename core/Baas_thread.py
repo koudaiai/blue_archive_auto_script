@@ -1472,7 +1472,11 @@ class Baas_thread:
 
     def _clean_boa(self):
         # remove virtual display
-        self.u2.shell('settings put global overlay_display_devices ""')
+        try:
+            self.u2.shell('settings put global overlay_display_devices ""')
+            self.logger.info("Virtual display removed.")
+        except Exception as e:
+            self.logger.warning("Remove virtual display failed: " + str(e))
         # 清掉引用，重进调度循环时 thread_starter() 会据此重建
         self.target_display = None
 

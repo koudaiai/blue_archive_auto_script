@@ -682,6 +682,15 @@ if __name__ == '__main__':
 
     app = QApplication(sys.argv)
 
+    # Android 上系统输入法的文字提交到不了 Qt（QtInputConnection 回调失效），
+    # 换成应用内自绘键盘；桌面端有实体键盘，不需要
+    if host_platform_is_android():
+        try:
+            from gui.util.touch_keyboard import install as install_touch_keyboard
+            install_touch_keyboard(app)
+        except Exception as e:
+            print("touch keyboard init failed: %s" % e)
+
     # internationalization
     translator = FluentTranslator(bt.locale)
 

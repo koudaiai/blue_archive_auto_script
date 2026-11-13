@@ -36,6 +36,25 @@ request_permission()
 shizuku.connect()
 patch_adb(shizuku, logger)
 
+# 清掉上次异常退出（被系统清理、强杀）残留的模拟副屏。
+# 它由 overlay_display_devices 创建，会以「小窗」形式常驻主屏、挡住视野；
+# 正常停止脚本时 Baas_thread 会清，但进程被强杀就来不及走到那一步。
+try:
+    import time as _time
+
+    cleared = False
+    # bindUserService 是异步的，刚 connect 完服务还没就绪，需要等一下
+    for _ in range(20):
+        ok, _res = shizuku.execute_command("settings put global overlay_display_devices ''")
+        if ok:
+            cleared = True
+            break
+        _time.sleep(0.2)
+    if not cleared:
+        logger.warning("Clear leftover virtual display failed: shizuku not ready")
+except Exception as error:
+    logger.warning("Clear leftover virtual display failed: " + str(error))
+
 # 熄屏后保活：前台服务防 Cached Apps Freezer + 唤醒锁防 CPU suspend
 from core.android.foreground import ensure_runtime_keepalive
 ensure_runtime_keepalive(logger)
