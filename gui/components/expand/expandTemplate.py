@@ -154,7 +154,10 @@ class TemplateLayout(QWidget):
             self.vBoxLayout.addLayout(optionPanel)
             self.vBoxLayout.setContentsMargins(20, 0, 20, 20)
 
-    def _commit(self, key, target, labelTarget):
+    def _commit(self, key, target, labelTarget, *args):
+        # SwitchButton 的 checkedChanged 会带一个 bool，ComboBox 的 currentIndexChanged 会带一个 int。
+        # PyQt5 允许槽函数少参数（多余实参被丢弃），PySide6 会直接抛 TypeError，
+        # 于是开关类设置在 Android 上「界面状态变了但不落盘」。用 *args 吞掉信号参数。
         value = None
         if isinstance(target, ComboBox):
             value = target.currentText()
