@@ -146,7 +146,10 @@ def swipe_gift_and_screenshot(self):
         t1 = threading.Thread(target=screenshot_thread, args=(self, shotDelay))
         t1.start()
         start_t = time.time()
-        self.u2_swipe(131, 660, 1280, 660, duration=0.5)
+        # 拖动要足够慢，否则礼物一闪而过、爱心还没出现就已经截完图了。
+        # adb 的 input swipe 还要外加截图本身 ~0.3s 的节流开销，
+        # 0.5s 的拖动根本盖不住这个窗口。
+        self.u2_swipe(131, 660, 1280, 660, duration=1.5)
         return round(time.time() - start_t, 3)
     else:
         q = queue.Queue()
