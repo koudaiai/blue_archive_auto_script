@@ -24,7 +24,9 @@ class SharedMemory:
     @staticmethod
     def set_data(name, data, size):
         if name not in SharedMemory.shm_map:
-            raise SharedMemoryError(f"Shared memory {name} not found")
+            # 句柄丢了（OCR 服务重建过共享内存、或模块被重新导入）时，
+            # 按名字重新打开一次，别让整条任务因为「not found」直接失败。
+            SharedMemory.shm_map[name] = SharedMemory(name)
         shm = SharedMemory.shm_map[name]
         if shm.size < size:
             raise SharedMemoryError(f"Shared memory {name} size {shm.size} not enough for {size}")

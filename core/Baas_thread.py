@@ -1162,9 +1162,16 @@ class Baas_thread:
                 self.u2.uiautomator.start()
                 while not self.u2.uiautomator.running():
                     time.sleep(0.1)
-                self.latest_img_array = self.normalize_screenshot(
-                    cv2.cvtColor(np.array(self.u2.screenshot()), cv2.COLOR_RGB2BGR)
-                )
+                if self.is_android_device:
+                    # u2 的截图走主屏（2400x1080），写进 latest_img_array 会把
+                    # ratio 改成 1.875，和应用界面对不上，日志里会出现
+                    # 「2400x1080 -> 1280x720 -> 2400x1080」来回同步。
+                    # Android 上只用配置好的截图通道（能带 -d）刷新。
+                    self.latest_img_array = self.get_screenshot_array()
+                else:
+                    self.latest_img_array = self.normalize_screenshot(
+                        cv2.cvtColor(np.array(self.u2.screenshot()), cv2.COLOR_RGB2BGR)
+                    )
                 return
             except Exception as e:
                 print(e)

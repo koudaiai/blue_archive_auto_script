@@ -109,7 +109,10 @@ def screenshot_thread(self, delay):
         delay += 0.1
     time.sleep(delay)
     if self.is_android_device:
-        self.latest_img_array = self.u2_get_screenshot()
+        # 必须用配置好的截图通道（adb + -d 虚拟屏）。以前用 u2 截图，拿到的是
+        # 主屏上 BAAS 自己的界面（2400x1080），match() 永远找不到学生，
+        # 表现就是「只拖礼物、不摸头」。
+        self.update_screenshot_array()
     else:
         self.update_screenshot_array()
         cv2.imwrite("cafe_reward_shot.png", self.latest_img_array)
@@ -121,7 +124,11 @@ def gift_to_cafe(self):
 
 def zoom_out(self):
     if self.is_android_device:
-        self.u2().pinch_in(percent=50, steps=30)
+        # 双指缩放只有 uiautomator2 能发，但它不带 display，会作用在主屏上，
+        # 而且 self.u2 是 Device 实例、按旧写法 self.u2() 会直接 TypeError，
+        # 整段互动就断在第一步（所以之前只看到拖礼物、没有摸头）。
+        # Android 上跳过缩放，直接进互动流程。
+        self.logger.info("Skip pinch zoom on Android (u2 pinch cannot target the virtual display).")
     else:
         for _ in range(0, 15):
             self.control.scroll(640, 360, 10)

@@ -69,6 +69,36 @@ class Logger:
         handler1.setFormatter(formatter)
         self.logger.setLevel(logging.INFO)
         self.logger.addHandler(handler1)
+        # Android 上日志框不能翻页、也不进 logcat，排障只能靠落盘。
+        # 写到 <filesDir>/baas.log，下次启动超过 5MB 就滚动覆盖。
+        self._log_fp = None
+        self._open_log_file()
+
+    def _open_log_file(self):
+        try:
+            import os
+            if not host_platform_is_android():
+                return
+            base = os.environ.get("BAAS_ANDROID_INTERNAL_FILES_DIR", "").strip()
+            if not base:
+                return
+            path = os.path.join(base, "baas.log")
+            if os.path.exists(path) and os.path.getsize(path) > 5 << 20:
+                os.replace(path, path + ".1")
+            self._log_fp = open(path, "a", encoding="utf-8")
+        except Exception:
+            self._log_fp = None
+
+    def _write_log_file(self, level: int, message: str) -> None:
+        if self._log_fp is None:
+            return
+        try:
+            from datetime import datetime
+            tag = ["INFO", "WARNING", "ERROR", "CRITICAL"][max(0, min(3, level - 1))]
+            self._log_fp.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} {tag} | {message}\n")
+            self._log_fp.flush()
+        except Exception:
+            pass
 
     def __out__(self, message: str, level: int = 1, raw_print=False) -> None:
         """
@@ -88,6 +118,7 @@ class Logger:
             self.logs += message
             if self.logger_signal:
                 self.logger_signal.emit(level, message)
+            self._write_log_file(level, str(raw_message))
             # also send to logcat if on Android
             try:
                 if host_platform_is_android():
@@ -112,6 +143,7 @@ class Logger:
                           f'{levels_str[level - 1]} |'
                           f' {datetime.now().strftime("%Y-%m-%d %H:%M:%S")} |'
                           f' {escape(message)}[/]', soft_wrap=True)
+        self._write_log_file(level, str(message))
 
         # If running on Android, also send a plain-text copy to logcat
         try:
