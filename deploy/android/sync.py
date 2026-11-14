@@ -40,7 +40,10 @@ SYNC_BLACKLIST = [
     "tests/",
     "*.log",
     ".DS_Store",
-    "/core/ocr/baas_ocr_client/bin/"
+    "/core/ocr/baas_ocr_client/bin/",
+    # 旧布局的 Android OCR 运行时（119MB）。它只存在于手机端、不在 git 里，
+    # 若被当成「本地已删除」就会整个 rmtree，导致升级后必须重下 100+MB。
+    "/core/ocr/baas_ocr_client/bin-android/"
 ]
 # =================================================
 
