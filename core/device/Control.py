@@ -20,6 +20,13 @@ class Control:
 
     def init_control_instance(self):
         self.method = self.config.control_method
+        if self.Baas_instance.is_android_device and self.method == "uiautomator2":
+            # 同理：u2 的点击落在主屏，游戏却在虚拟屏上，必须用 adb 的 input -d。
+            self.logger.warning(
+                "control_method=uiautomator2 cannot target the virtual display on Android; "
+                "falling back to adb."
+            )
+            self.method = "adb"
         self.logger.info("Control method : " + self.method)
 
         if self.Baas_instance.is_android_device:

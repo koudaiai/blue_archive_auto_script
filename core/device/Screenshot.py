@@ -24,6 +24,16 @@ class Screenshot:
 
     def init_screenshot_instance(self):
         self.method = self.config.screenshot_method
+        if self.Baas_instance.is_android_device and self.method == "uiautomator2":
+            # Android 上游戏跑在 overlay_display_devices 建出来的虚拟屏里，
+            # uiautomator2 的 screencap 只认主屏，拿到的是 2400x1080 的应用界面，
+            # 和 1280x720 的模板坐标对不上，裁剪会切出空数组并在 cv2.resize 断言。
+            # 只有 adb 方式能按 -d <display_id> 抓虚拟屏。
+            self.logger.warning(
+                "screenshot_method=uiautomator2 cannot capture the virtual display on Android; "
+                "falling back to adb."
+            )
+            self.method = "adb"
         self.logger.info("Screenshot method : " + self.method)
 
         if self.Baas_instance.is_android_device:

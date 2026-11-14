@@ -506,8 +506,20 @@ class Baas_thread:
                 return line.split("/", 1)[1]
         return ""
 
+    def _android_package_running(self) -> bool:
+        try:
+            output = getattr(self.u2.shell(f"pidof {self.package_name}"), "output", "") or ""
+        except Exception:
+            return False
+        return bool(output.strip())
+
     def _android_start_game(self) -> bool:
-        """把游戏启动到虚拟屏（display id 来自 _setup_boa）。"""
+        """把游戏启动到虚拟屏（display id 来自 _setup_boa）。
+
+        ``am start`` 的返回码不可靠：虚拟屏刚 ``settings put`` 完的那一两秒里，
+        命令会返回 ``Warning: Activity not started``/空输出，进程根本没起来，
+        之后截图一直是 0 字节。所以这里以 ``pidof`` 为准，最多重试 3 轮。
+        """
         display = getattr(self, "target_display", None)
         if display is None:
             self.logger.warning("No virtual display available, skip starting game.")
@@ -518,20 +530,41 @@ class Baas_thread:
             self.logger.info("start game: " + command)
             return getattr(self.u2.shell(command), "output", "") or ""
 
-        output = _start(self.activity_name)
-        failed = "Error" in output or "Exception" in output
-        if failed:
-            self.logger.warning("start game failed: " + output.strip()[:200])
-            resolved = self._android_resolve_launcher_activity()
-            if resolved and resolved != self.activity_name:
-                self.logger.info("resolve launcher activity: " + resolved)
-                output = _start(resolved)
-                failed = "Error" in output or "Exception" in output
-                if not failed:
-                    self.activity_name = resolved
-                else:
-                    self.logger.warning("start game failed again: " + output.strip()[:200])
-        return not failed
+        # 游戏如果已经在别的屏上跑着，带 --display 的 am start 只会把它拉回原来的
+        # 任务栈，新虚拟屏仍然是空的（截图 0 字节）。先杀掉，保证它在新屏上全新启动。
+        if self._android_package_running():
+            self.logger.info("Game already running; restarting it on the virtual display.")
+            try:
+                self.u2.shell(f"am force-stop {self.package_name}")
+            except Exception as error:  # noqa: BLE001 - 杀不掉也只是重试
+                self.logger.warning("force-stop game failed: " + str(error))
+            time.sleep(2)
+
+        for attempt in range(1, 4):
+            output = _start(self.activity_name)
+            failed = "Error" in output or "Exception" in output
+            if failed:
+                self.logger.warning("start game failed: " + output.strip()[:200])
+                resolved = self._android_resolve_launcher_activity()
+                if resolved and resolved != self.activity_name:
+                    self.logger.info("resolve launcher activity: " + resolved)
+                    output = _start(resolved)
+                    failed = "Error" in output or "Exception" in output
+                    if not failed:
+                        self.activity_name = resolved
+                    else:
+                        self.logger.warning("start game failed again: " + output.strip()[:200])
+            # 给进程一点时间出现，再判断是不是真的起来了
+            deadline = time.time() + 10
+            while time.time() < deadline:
+                if self._android_package_running():
+                    if attempt > 1:
+                        self.logger.info(f"start game succeeded on attempt {attempt}.")
+                    return True
+                time.sleep(0.5)
+            self.logger.warning(f"start game attempt {attempt}: package not running, retrying.")
+        return False
+
 
     def _android_wait_for_picture(self, timeout: float = 120.0) -> bool:
         """反复截图，直到画面不再是纯黑（说明游戏真的渲染出来了）。"""

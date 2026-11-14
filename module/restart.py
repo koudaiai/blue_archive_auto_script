@@ -26,11 +26,14 @@ def implement(self):
 def start(self):
     self.logger.info("-- START BLUE ARCHIVE --")
     if host_platform_is_android():
-        self.u2.shell(f"am start --display {self.target_display.logical_id} -n {self.package_name}/{self.activity_name}")
+        # 统一走 _android_start_game：它会先确认游戏不在别的虚拟屏上跑着、
+        # 再用 pidof 校验进程真的起来了（am start 的返回码不可靠）。
+        started = self._android_start_game()
+        self.logger.info(f"start game: {started}")
         # 冷启动瞬间虚拟屏上还没有任何图层，screencap 会返回 0 字节，
         # 直接进 to_main_page 就会在 cv2.resize 上抛 !ssize.empty()。
         # 先等游戏真的渲染出画面（稳定性循环里也是这么做的），再走识别。
-        if hasattr(self, "_android_wait_for_picture"):
+        if started and hasattr(self, "_android_wait_for_picture"):
             pictured = self._android_wait_for_picture(120)
             self.logger.info(f"start game picture: {pictured}")
     else:

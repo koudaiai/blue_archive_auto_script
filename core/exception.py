@@ -1,4 +1,5 @@
 import traceback
+from datetime import datetime
 
 
 class SharedMemoryError(Exception):
@@ -75,20 +76,20 @@ class LogTraceback:
         for line in _lines:
             self.context.logger.error(line)
         self.context.logger.error('All activities stopped. Require human take over.')
-        # self.log_into_file()
+        # 把完整日志落到 error.html：Android 上日志框没法翻页也没进 logcat，
+        # 排查只能靠这份副本（路径为工作目录，即 files/app）。
+        self.log_into_file()
 
     def log_into_file(self):
-        with open('error.html', 'a') as f:
+        try:
             if self.context.connection is None:
                 return
-            # screenshot = self.context.connection.screenshot()
-            # numpy_array = np.array(screenshot)[:, :, [2, 1, 0]]
-            # convert the image to base64 and mix it into the html
-            # img_base64 = numpy_array.tobytes()
-            # img_base64 = base64.b64encode(img_base64).decode('utf-8')
-            # img_html = f'<img src="data:image/png;base64,{img_base64}">'
-            f.write(self.context.logger.logs)
-            f.write(self.message + '\n')
+            with open('error.html', 'a', encoding='utf-8') as f:
+                f.write(f'\n===== {datetime.now()} =====\n')
+                f.write(self.context.logger.logs)
+                f.write('\n' + self.message + '\n')
+        except Exception:
+            pass
 
     def __str__(self):
         return self.message
