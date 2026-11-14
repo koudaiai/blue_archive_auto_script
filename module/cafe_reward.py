@@ -113,7 +113,7 @@ def screenshot_thread(self, delay, frames=None):
         # （表现就是「识别到了但只点一两个」或「No interaction found」）。
         # 在拖动还没结束时连拍几帧，交给 find_student_position 合并去重。
         bucket = frames if frames is not None else []
-        for _ in range(3):
+        for _ in range(2):
             self.update_screenshot_array()
             if self.latest_img_array is not None:
                 bucket.append(self.latest_img_array.copy())
@@ -156,7 +156,7 @@ def swipe_gift_and_screenshot(self):
         # 拖动要足够慢，否则礼物一闪而过、爱心还没出现就已经截完图了。
         # adb 的 input swipe 还要外加截图本身 ~0.3s 的节流开销，
         # 0.5s 的拖动根本盖不住这个窗口。
-        self.u2_swipe(131, 660, 1280, 660, duration=1.8)
+        self.u2_swipe(131, 660, 1280, 660, duration=1.1)
         t1.join()
         return round(time.time() - start_t, 3)
     else:
@@ -185,7 +185,9 @@ def find_student_position(self):
         if all(abs(p[0] - q[0]) > 10 or abs(p[1] - q[1]) > 10 for q in merged):
             merged.append(p)
     res = merged
-    self.logger.info(f"interaction frames: {len(frames)}, hearts: {len(res)}")
+    self.logger.info(
+        f"interaction frames: {len(frames)}, hearts: {len(res)}, swipe {swipe_t:.2f}s"
+    )
     if not res:
         self.logger.info("No interaction found")
         if not self.is_android_device and swipe_t < self.config.cafe_reward_interaction_shot_delay + 0.3:
@@ -199,7 +201,6 @@ def find_student_position(self):
                 self.config_set.set("cafe_reward_interaction_shot_delay",
                                     self.config.cafe_reward_interaction_shot_delay)
         time.sleep(1)
-    gift_to_cafe(self)
     index = 0
     while index < len(res):
         if res[index][0] > 1174 and res[index][1] < 134:
@@ -236,13 +237,28 @@ def interaction_for_cafe_solve_method3(self):
     max_times = self.config.cafe_reward_affection_pat_round
     self.logger.info("Pat Round : [ " + str(max_times) + " ]")
     for i in range(0, max_times):
+        t_start = time.time()
         cafe_to_gift(self)
+        t_gift = time.time()
         res = find_student_position(self)
+        self.logger.info(
+            f"interaction timing: to_gift {t_gift - t_start:.2f}s, "
+            f"drag+match {time.time() - t_gift:.2f}s"
+        )
         if len(res) == 0:
+            gift_to_cafe(self)
             continue
         self.logger.info("Find " + str(len(res)) + " interactions")
+        # 第一个点等它落地，其余连续发出：人物在拖动结束后会开始走动，
+        # 每个点击都等一次 adb 往返（~0.3s）会让后几个点心错过位置。
         for j in range(0, len(res)):
-            self.click(res[j][0], min(res[j][1], 591), wait_over=True)
+            self.click(res[j][0], min(res[j][1], 591), wait_over=(j == 0))
+            if j:
+                time.sleep(0.12)
+        time.sleep(0.3)
+        t_gift = time.time()
+        gift_to_cafe(self)
+        self.logger.info(f"gift_to_cafe {time.time() - t_gift:.2f}s")
         if i != max_times - 1:
             time.sleep(2)
             to_cafe(self)

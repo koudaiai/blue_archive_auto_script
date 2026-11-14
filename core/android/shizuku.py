@@ -276,14 +276,20 @@ class ShizukuClient:
             else:
                 args = to_java_str_array(["/system/bin/sh", "-c", command])
 
-            self.logger.info(f"ShizukuClient: Executing command (as java String[]): {args}")
+            # 不要打 java 对象 repr：adb 通道下每次点击/滑动都会走这里，
+            # 一条日志就能刷满整屏，真正的业务日志全被淹掉。
+            text = command if isinstance(command, str) else " ".join(str(c) for c in command)
+            if len(text) > 120:
+                text = text[:117] + "..."
+            self.logger.info(f"ShizukuClient: exec {text}")
             res = self.i_user_service.exec(args)
             result = CommandResult(
                 exitCode=int(res.exitCode),
                 stdout=str(res.stdout or ''),
                 stderr=str(res.stderr or ''),
             )
-            self.logger.info(f"ShizukuClient: Result: {result}")
+            if result.exitCode != 0:
+                self.logger.warning(f"ShizukuClient: command failed {result}")
             return True, result
         except Exception as e:
             import traceback

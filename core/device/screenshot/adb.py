@@ -57,11 +57,15 @@ class AdbScreenshot:
                 pass
 
     def _capture_once(self) -> bytes:
-        if host_platform_is_android() and self.display_id:
-            # Binder IPC on Android cannot pass data larger than 500 KB,
-            # so we have to pipe the screenshot data through a socket.
-            # Thus we have to use sh to pipe the output of screencap to nc.
-            cmd = f'screencap -p -d {self.display_id} | nc 127.0.0.1 {self._port}'
+        if host_platform_is_android():
+            # Binder IPC on Android cannot pass data larger than 500 KB, so the
+            # screenshot is piped through a local socket. 另外 Shizuku 的 shell 通道
+            # 会把 stdout 当字符串解码，二进制 PNG 会被替换成 \xef\xbf\xbd，
+            # 所以还没拿到 display id 时也必须走 socket，不能直接读 stdout。
+            if self.display_id:
+                cmd = f'screencap -p -d {self.display_id} | nc 127.0.0.1 {self._port}'
+            else:
+                cmd = f'screencap -p | nc 127.0.0.1 {self._port}'
             out = []
             th = threading.Thread(target=self._accept_and_read, args=(out,), daemon=True)
             th.start()
@@ -87,12 +91,14 @@ class AdbScreenshot:
 
         # 连拍几次还是空帧：目标屏当前没有内容（游戏刚拉起、或屏被关掉）。
         # 抛明确的异常，避免下游抛 OpenCV 的 !ssize.empty() 让人无从判断。
-        if host_platform_is_android() and self.display_id:
+        if host_platform_is_android():
+            display = self.display_id if self.display_id else "main"
             raise TimeoutError(
-                f'Empty screenshot on display {self.display_id} '
+                f'Empty screenshot on display {display} '
                 f'(got {len(data)} bytes); the display may have nothing rendered yet'
             )
-        self.logger.warning(f'Unexpected screenshot: {data}')
+        # 桌面端保留旧行为，但别把二进制打进日志（会刷出一屏 \xef 乱码）
+        self.logger.warning(f'Unexpected screenshot: {data[:32]!r}... ({len(data)} bytes)')
         return None
 
 
