@@ -113,11 +113,13 @@ def screenshot_thread(self, delay, frames=None):
         # （表现就是「识别到了但只点一两个」或「No interaction found」）。
         # 在拖动还没结束时连拍几帧，交给 find_student_position 合并去重。
         bucket = frames if frames is not None else []
+        bucket_t = self._cafe_frame_times = []
         for _ in range(2):
             self.update_screenshot_array()
             if self.latest_img_array is not None:
                 bucket.append(self.latest_img_array.copy())
-            time.sleep(0.2)
+                bucket_t.append(time.time())
+            time.sleep(0.15)
     else:
         self.update_screenshot_array()
         cv2.imwrite("cafe_reward_shot.png", self.latest_img_array)
@@ -148,6 +150,7 @@ def swipe_gift_thread(self, duration, ret_queue):
 def swipe_gift_and_screenshot(self):
     shotDelay = self.config.cafe_reward_interaction_shot_delay
     if self.is_android_device:
+        shotDelay = min(shotDelay, 0.35)
         frames = []
         self._cafe_frames = frames
         t1 = threading.Thread(target=screenshot_thread, args=(self, shotDelay, frames))
@@ -156,7 +159,9 @@ def swipe_gift_and_screenshot(self):
         # 拖动要足够慢，否则礼物一闪而过、爱心还没出现就已经截完图了。
         # adb 的 input swipe 还要外加截图本身 ~0.3s 的节流开销，
         # 0.5s 的拖动根本盖不住这个窗口。
-        self.u2_swipe(131, 660, 1280, 660, duration=1.1)
+        # adb 的 input swipe duration 只是下限：实测请求 1.1s 会跑成 2.7s。
+        # 这里压到 0.4s（实际约 1.0s），爱心被识别后很快就会松手。
+        self.u2_swipe(131, 660, 1120, 660, duration=0.4)
         t1.join()
         return round(time.time() - start_t, 3)
     else:
@@ -253,9 +258,11 @@ def interaction_for_cafe_solve_method3(self):
             continue
         self.logger.info("Find " + str(len(res)) + " interactions")
         # 量化「识别结束 → 第一次点击」的实际间隔
+        frame_times = getattr(self, "_cafe_frame_times", None) or []
+        heart_age = (time.time() - frame_times[0]) if frame_times else -1
         self.logger.info(
-            "click gap %.2fs (swipe %.2fs)"
-            % (time.time() - t_find_done, getattr(self, "_last_swipe_t", 0.0))
+            "click gap %.2fs | heart age %.2fs | swipe %.2fs"
+            % (time.time() - t_find_done, heart_age, getattr(self, "_last_swipe_t", 0.0))
         )
         # 第一个点等它落地，其余连续发出：人物在拖动结束后会开始走动，
         # 每个点击都等一次 adb 往返（~0.3s）会让后几个点心错过位置。
