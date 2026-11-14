@@ -120,14 +120,7 @@ class AndroidPower:
                 )
                 if getattr(resp, "status_code", 200) == 200:
                     payload = resp.json()
-                    output = payload.get("output") or ""
-                    # 诊断：注入类命令是否真的执行、坐标是多少、有没有报错
-                    if command.startswith("input "):
-                        self.logger.info(
-                            f"u2 shell: {command} -> err={payload.get('error')!r} "
-                            f"code={payload.get('exitCode')} out={output[:80]!r}"
-                        )
-                    return output
+                    return payload.get("output") or ""
                 self.logger.warning(f"u2 /shell HTTP {resp.status_code}: {command}")
             except Exception as error:
                 self.logger.warning("u2 /shell failed: " + command + " -> " + str(error))
@@ -213,10 +206,6 @@ class AndroidPower:
         end = self._scale(swipe.get("to", [540, 900]))
         duration = int(swipe.get("duration_ms", 150))
         keypad = self.settings.get("keypad") or {}
-        self.logger.info(
-            f"unlock geometry: screen={self.screen_size()} swipe={start}->{end} "
-            f"digits={len(self.password)} first_key={self._scale(keypad.get(self.password[0], (0, 0)))}"
-        )
         # 上滑 + 点 PIN 整体重试两次：锁屏刚亮起时第一次上滑常常打空
         for attempt in range(1, 3):
             self._u2_shell(f"input swipe {start[0]} {start[1]} {end[0]} {end[1]} {duration}")
