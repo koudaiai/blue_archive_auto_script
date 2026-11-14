@@ -1,4 +1,5 @@
 import base64
+import time
 from typing import TYPE_CHECKING, Union, Any, NamedTuple
 
 from jnius import PythonJavaClass
@@ -256,17 +257,45 @@ class ShizukuClient:
                 return False
         return True
 
-    def execute_command(self, command) -> tuple[bool, Union[CommandResult, str]]:
+    def rebind_user_service(self, wait: float = 8.0) -> bool:
+        """user service 进程被系统杀掉后重新 bind。
+
+        Shizuku 的 binder 死亡会抛 DeadObjectException，此后所有 adb/shell
+        调用全部失效。重新 bindUserService 是异步的，要等 onServiceConnected
+        把 i_user_service 填回来。
+        """
+        self.i_user_service = None
+        try:
+            if not self.connect():
+                return False
+        except Exception as error:
+            self.logger.warning("Shizuku rebind failed: " + str(error))
+            return False
+        deadline = time.time() + wait
+        while time.time() < deadline:
+            if self.i_user_service is not None:
+                self.logger.info("Shizuku user service rebound.")
+                return True
+            time.sleep(0.2)
+        self.logger.warning("Shizuku rebind timed out.")
+        return False
+
+    def execute_command(self, command, _retried: bool = False) -> tuple[bool, Union[CommandResult, str]]:
         """Execute a shell command via Shizuku service.
 
         Args:
             command (str): The shell command to execute.
+            _retried: 内部标记，防止重连失败时无限递归。
 
         Returns:
             tuple[bool, Union[CommandResult, str]]: A tuple containing:
                 - bool: True if execution successful, False otherwise.
                 - Union[CommandResult, str]: CommandResult on success, error message on failure.
         """
+        if not self.i_user_service and not _retried:
+            self.logger.warning("ShizukuClient: Service not connected, trying to rebind.")
+            if self.rebind_user_service():
+                return self.execute_command(command, _retried=True)
         if not self.i_user_service:
             self.logger.error("ShizukuClient: Service not connected.")
             return False, "Error: Service not connected."
@@ -295,6 +324,18 @@ class ShizukuClient:
                 self.logger.warning(f"ShizukuClient: command failed {result}")
             return True, result
         except Exception as e:
+            message = f"{e}"
+            # binder 对端进程（Shizuku user service）被系统杀掉时重连一次。
+            # 不重连的话，后续每个 adb/shell 调用都会失败，恢复逻辑又会去
+            # kill adb server，最后卡死在失联的通道上。
+            if not _retried and (
+                "DeadObjectException" in message
+                or "Transaction failed" in message
+                or "Service not connected" in message
+            ):
+                self.logger.warning("Shizuku user service died, rebinding...")
+                if self.rebind_user_service():
+                    return self.execute_command(command, _retried=True)
             import traceback
             traceback.print_exc()
             self.logger.error(f"ShizukuClient: Command execution failed: {e}")

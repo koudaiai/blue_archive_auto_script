@@ -1221,6 +1221,20 @@ class Baas_thread:
             self.u2 = client.reconnect()
             self.last_refresh_u2_time = time.time()
             self.wait_uiautomator_start()
+            if utils.host_platform_is_android():
+                # u2 重连成功 ≠ adb 通道可用：Android 上 adbutils 走的是
+                # 进程内 mock adb server + Shizuku。必须实际跑一条 shell 验证，
+                # 否则会打印「Device recovered」后带着坏通道重试任务，
+                # 最终卡死在 am start / 截图这类无超时调用上。
+                try:
+                    from adbutils import adb
+
+                    probe = adb.device(self.serial).shell("echo ok", timeout=8)
+                    if "ok" not in (probe or ""):
+                        raise RuntimeError("unexpected probe output: " + repr(probe))
+                except Exception as bridge_error:
+                    self.logger.warning("adb bridge unavailable after reconnect: " + str(bridge_error))
+                    return False
             self.logger.info("Device reconnected.")
             return True
         except Exception as error:

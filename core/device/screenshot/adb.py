@@ -27,6 +27,9 @@ class AdbScreenshot:
             self._server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self._server.bind(('127.0.0.1', 0))
             self._server.listen(1)
+            # 必须给监听 socket 超时：screencap 那端进程挂掉 / Shizuku 桥断开时，
+            # accept() 或 recv() 会永远阻塞，截图线程变成僵尸，主流程随之卡死。
+            self._server.settimeout(10)
             self._host, self._port = self._server.getsockname()
 
     def __del__(self):
@@ -40,9 +43,13 @@ class AdbScreenshot:
         self.display_id = display_id
 
     def _accept_and_read(self, out_container):
-        # Blocking accept and read all bytes until EOF
-        conn, addr = self._server.accept()
+        # Blocking accept and read all bytes until EOF（带超时，避免永久挂住）
         try:
+            conn, addr = self._server.accept()
+        except socket.timeout:
+            return
+        try:
+            conn.settimeout(10)
             chunks = []
             while True:
                 data = conn.recv(8192)
@@ -50,6 +57,8 @@ class AdbScreenshot:
                     break
                 chunks.append(data)
             out_container.append(b''.join(chunks))
+        except socket.timeout:
+            self.logger.warning("screenshot socket read timed out")
         finally:
             try:
                 conn.close()
@@ -81,7 +90,13 @@ class AdbScreenshot:
     def screenshot(self):
         data = b''
         for attempt in range(self._EMPTY_RETRY):
-            data = self._capture_once()
+            # 桥断 / Shizuku 重启 / adb server 抖动时 _capture_once 会抛异常，
+            # 不能让它直接冒出去打断任务；当成本次空帧继续重试。
+            try:
+                data = self._capture_once()
+            except Exception as error:
+                self.logger.warning(f"screenshot capture failed ({attempt + 1}): {error}")
+                data = b''
             if len(data) >= 500:
                 image = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
                 if image is not None and image.size:

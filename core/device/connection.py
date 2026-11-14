@@ -297,6 +297,16 @@ class Connection:
         return []
 
     def kill_adb(self):
+        from core.utils import host_platform_is_android
+
+        if host_platform_is_android():
+            # Android 上 adbutils 连的是**进程内**的 mock adb server（patch_adb
+            # 启动，后端接 Shizuku）。server_kill() 会把它杀掉，而 patch_adb 只在
+            # android_main.py 加载时跑一次，之后没有任何地方重建 —— 截图、
+            # input -d、am start 会全部失联，甚至阻塞在无超时的 socket 上。
+            # 这正是「Shizuku 抖动一次就永久卡死」的关键一步。
+            self.logger.warning("Skip kill adb server on Android (in-process Shizuku bridge).")
+            return
         self.logger.info("Kill ADB Server")
         adb.server_kill()
 
