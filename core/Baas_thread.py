@@ -1004,7 +1004,13 @@ class Baas_thread:
         if not self.flag_run:
             raise RequestHumanTakeOver
         self.logger.info(f"swipe from ( " + str(fx) + " , " + str(fy) + " ) --> ( " + str(tx) + " , " + str(ty) + " )")
-        self.u2.swipe(fx * self.ratio, fy * self.ratio, tx * self.ratio, ty * self.ratio, duration)
+        if self.is_android_device:
+            # u2 的 swipe 不带 display，会打到主屏：坐标按虚拟屏（1280x720）乘上
+            # ratio 后直接落到主屏（2400x1080）上，Y 甚至被截到底边，手势从边上
+            # 划出去就会触发系统返回/回桌面。Android 上必须走带 -d 的 adb 通道。
+            self.control.swipe(fx * self.ratio, fy * self.ratio, tx * self.ratio, ty * self.ratio, duration)
+        else:
+            self.u2.swipe(fx * self.ratio, fy * self.ratio, tx * self.ratio, ty * self.ratio, duration)
         if post_sleep_time > 0:
             time.sleep(post_sleep_time)
 
