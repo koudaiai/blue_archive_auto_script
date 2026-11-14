@@ -680,6 +680,8 @@ class Baas_thread:
                     if time.time() - self.last_refresh_u2_time > 10800:
                         self.solve('refresh_uiautomator2')
                     self.genScheduleLog(nextTask)
+                    # 闲置关游戏后虚拟屏可能已经没内容了，跑任务前先兜底重建
+                    self._ensure_android_boa_ready()
 
                     task_with_log_info = []
                     for task in nextTask['pre_task']:
@@ -719,6 +721,12 @@ class Baas_thread:
                         self.task_finish_to_main_page = False
                         # 一轮任务收尾：Android 上关掉游戏，之后由系统超时自动息屏
                         self._android_idle()
+                        # 游戏已关，虚拟屏留着也是空的；拆掉，下一轮按需重建
+                        try:
+                            if utils.host_platform_is_android() and self.u2 is not None:
+                                self._clean_boa()
+                        except Exception as error:
+                            self.logger.warning("BoA cleanup after idle failed: " + str(error))
                     self.scheduler.update_valid_task_queue()
                     time.sleep(1)
                     if self.flag_run:  # allow user to stop script before then action
@@ -1523,8 +1531,40 @@ class Baas_thread:
             self.logger.info("Virtual display removed.")
         except Exception as e:
             self.logger.warning("Remove virtual display failed: " + str(e))
-        # 清掉引用，重进调度循环时 thread_starter() 会据此重建
+        # 清掉引用与 display id：虚拟屏没了以后如果还按旧 id 抓图，
+        # screencap 会一直返回 0 字节，整条任务直接被 TimeoutError 打断。
         self.target_display = None
+        for component in (getattr(self, "screenshot", None), getattr(self, "control", None)):
+            try:
+                if component is not None:
+                    component.set_display_id(None)
+            except Exception as error:
+                self.logger.warning("Reset display id failed: " + str(error))
+
+    def _ensure_android_boa_ready(self) -> None:
+        """跑任务前确认「虚拟屏在 + 游戏在跑」。
+
+        闲置时会关掉游戏并拆掉虚拟屏，下一轮调度如果直接进 to_main_page，
+        抓到的就是一块空屏（screencap 0 字节），任务会连挂三次直接停摆。
+        """
+        if not utils.host_platform_is_android():
+            return
+        if getattr(self, "target_display", None) is not None and self._android_package_running():
+            return
+        self.logger.info("Virtual display or game missing, re-setup before task.")
+        try:
+            self._setup_boa()
+        except Exception as error:
+            self.logger.warning("Re-setup virtual display failed: " + str(error))
+            return
+        try:
+            started = self._android_start_game()
+            self.logger.info(f"start game: {started}")
+            if started:
+                pictured = self._android_wait_for_picture(120)
+                self.logger.info(f"start game picture: {pictured}")
+        except Exception as error:
+            self.logger.warning("Restart game failed: " + str(error))
 
     def _get_android_power(self):
         """懒加载 Android 电源控制器（依赖已经初始化的 u2）。"""
