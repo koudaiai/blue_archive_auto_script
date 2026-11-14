@@ -274,7 +274,9 @@ def _is_keyboard_target(widget):
     """只有真正可编辑的文本控件才弹键盘。"""
     if not isinstance(widget, (QLineEdit, QTextEdit, QPlainTextEdit)):
         return False
-    if isinstance(widget, QLineEdit) and widget.isReadOnly():
+    # 只读控件（主页运行日志、说明页）点击只为选中复制，不该弹键盘。
+    # 三种控件都有 isReadOnly()，QTextBrowser 默认也是只读，一并覆盖。
+    if widget.isReadOnly():
         return False
     # SpinBox 内部的 QLineEdit：用箭头调值就够了，交给原控件处理
     parent = widget.parentWidget()
