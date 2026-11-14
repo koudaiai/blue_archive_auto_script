@@ -104,25 +104,30 @@ def cafe_to_gift(self):
     picture.co_detect(self, rgb_ends, rgb_possibles, None, img_possibles, True)
 
 
-def screenshot_thread(self, delay, frames=None):
+def screenshot_thread(self, delay, frames=None, stop_event=None):
+    """拖动期间一直抓帧，松手为止。
+
+    adb 的 input swipe 实际耗时不可控（请求 0.4s 实测 2.5s），不能按固定延迟
+    拍一两张；这里跟着拖动一路拍，松手后取最后一帧识别 —— 按住期间爱心不会
+    消失，最后一帧才是最新、最全的画面。
+    """
     if not self.is_android_device:
         delay += 0.1
     time.sleep(delay)
-    if self.is_android_device:
-        # 拖动过程中爱心是逐渐出现的，只拍一帧会漏掉一部分学生
-        # （表现就是「识别到了但只点一两个」或「No interaction found」）。
-        # 在拖动还没结束时连拍几帧，交给 find_student_position 合并去重。
-        bucket = frames if frames is not None else []
-        bucket_t = self._cafe_frame_times = []
-        for _ in range(2):
-            self.update_screenshot_array()
-            if self.latest_img_array is not None:
-                bucket.append(self.latest_img_array.copy())
-                bucket_t.append(time.time())
-            time.sleep(0.15)
-    else:
+    if not self.is_android_device:
         self.update_screenshot_array()
         cv2.imwrite("cafe_reward_shot.png", self.latest_img_array)
+        return
+    frames = frames if frames is not None else []
+    self._cafe_frame_times = []
+    while stop_event is None or not stop_event.is_set():
+        self.update_screenshot_array()
+        if self.latest_img_array is not None:
+            frames.append(self.latest_img_array.copy())
+            self._cafe_frame_times.append(time.time())
+        if len(frames) >= 10:
+            break
+        time.sleep(0.05)
 
 def gift_to_cafe(self):
     rgb_possibles = {"gift": (1240, 574)}
@@ -152,17 +157,15 @@ def swipe_gift_and_screenshot(self):
     if self.is_android_device:
         shotDelay = min(shotDelay, 0.35)
         frames = []
+        stop_event = threading.Event()
         self._cafe_frames = frames
-        t1 = threading.Thread(target=screenshot_thread, args=(self, shotDelay, frames))
+        t1 = threading.Thread(target=screenshot_thread, args=(self, shotDelay, frames, stop_event))
         t1.start()
         start_t = time.time()
-        # 拖动要足够慢，否则礼物一闪而过、爱心还没出现就已经截完图了。
-        # adb 的 input swipe 还要外加截图本身 ~0.3s 的节流开销，
-        # 0.5s 的拖动根本盖不住这个窗口。
-        # adb 的 input swipe duration 只是下限：实测请求 1.1s 会跑成 2.7s。
-        # 这里压到 0.4s（实际约 1.0s），爱心被识别后很快就会松手。
+        # 终点收到 1120：拖到画面最右边会出框，爱心当即消失。
         self.u2_swipe(131, 660, 1120, 660, duration=0.4)
-        t1.join()
+        stop_event.set()
+        t1.join(timeout=3)
         return round(time.time() - start_t, 3)
     else:
         q = queue.Queue()
@@ -180,11 +183,14 @@ def find_student_position(self):
     if not frames and self.latest_img_array is not None:
         frames = [self.latest_img_array]
     res = []
-    for frame in frames:
+    # 只看最后一帧（松手前那一刻，最新最全）；没有结果再往前多看两帧
+    for frame in list(reversed(frames))[:3]:
         if frame is None:
             continue
-        img = cv2.resize(frame, (1280, 720), interpolation=cv2.INTER_AREA)
-        res.extend(match(img))
+        found = match(cv2.resize(frame, (1280, 720), interpolation=cv2.INTER_AREA))
+        if found:
+            res = found
+            break
     # 多帧合并：同一颗爱心在不同帧里最多差几个像素，按 10px 去重
     merged = []
     for p in res:
