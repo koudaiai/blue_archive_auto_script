@@ -943,6 +943,10 @@ class Baas_thread:
                 'main_page_news': (1142, 104),
                 'main_page_news2': (1142, 104),
                 "main_page_net-work-unstable": (753, 500),
+                # 「提示 / 101404: 网络异常，请重新连接 / 确定」这个弹窗的模板和
+                # net-work-unstable 不是同一个（那个只有 0.38 相似度），
+                # 认不出来就会一直对着右上角空点，越点越容易触发网络异常。
+                'main_page_network-error-confirm': (640, 438),
                 'main_page_fail-to-load-game-resources': (740, 437),
             },
             'JP': {
@@ -988,7 +992,12 @@ class Baas_thread:
             for field in fields(self.config):
                 value = getattr(self.config, field.name)
                 # Telegram IDs are strings; signed/large IDs must not become lossy floats.
-                if type(value) is not str or field.name == "push_telegram_chat_id":
+                # 锁屏 PIN 同理："0808" 被 int() 转成 808 会丢掉前导 0，
+                # AndroidPower 拿到 3 位密码，自动解锁永远失败。
+                if type(value) is not str or field.name in (
+                    "push_telegram_chat_id",
+                    "android_unlock_password",
+                ):
                     continue
                 if value.isdigit():
                     setattr(self.config, field.name, int(value))

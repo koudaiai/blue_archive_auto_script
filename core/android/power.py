@@ -75,7 +75,13 @@ class AndroidPower:
         self.logger = logger
         self.app_config = app_config
         self.settings = load_settings(project_root)
-        self.password = str(getattr(app_config, "android_unlock_password", "") or "").strip()
+        raw_password = getattr(app_config, "android_unlock_password", "")
+        if isinstance(raw_password, int):
+            self.logger.warning(
+                "android_unlock_password is an int in config (leading zero lost); "
+                "check init_config type conversion"
+            )
+        self.password = str(raw_password or "").strip()
         self.stop_game_when_idle = bool(getattr(app_config, "android_stop_game_when_idle", True))
         self.ref_width, self.ref_height = self._pair(self.settings.get("ref_resolution"), (1080, 2400))
         self._screen = None  # 实际分辨率，首次使用时探测
@@ -91,13 +97,66 @@ class AndroidPower:
             pass
         return fallback
 
-    def _shell(self, command: str) -> str:
+    # ---------------- 两条 shell 通道 ----------------
+
+    def _u2_shell(self, command: str) -> str:
+        """uiautomator2 自己的 shell 通道，**不经过 Shizuku**。
+
+        uiautomator2 2.16.x 的 ``Device.shell`` 走本机 atx-agent 的 HTTP
+        ``/shell``（实测 atx-agent 以 root 运行），注入的 ``input`` 事件能落到
+        锁屏上；而经 patch_adb → Shizuku 那条 ``/system/bin/sh -c input ...``
+        在 keyguard 上经常打空，表现就是「Unlock failed, keyguard still showing」。
+
+        这里显式打 atx-agent 的 /shell，避免误用被 patch_adb 改过的 adbutils；
+        拿不到 http 端点时才退回公开的 ``u2.shell``。
+        """
+        http = getattr(self.u2, "http", None)
+        if http is not None:
+            try:
+                resp = http.post(
+                    "/shell",
+                    data={"command": command, "timeout": "30"},
+                    timeout=40,
+                )
+                if getattr(resp, "status_code", 200) == 200:
+                    payload = resp.json()
+                    output = payload.get("output") or ""
+                    # 诊断：注入类命令是否真的执行、坐标是多少、有没有报错
+                    if command.startswith("input "):
+                        self.logger.info(
+                            f"u2 shell: {command} -> err={payload.get('error')!r} "
+                            f"code={payload.get('exitCode')} out={output[:80]!r}"
+                        )
+                    return output
+                self.logger.warning(f"u2 /shell HTTP {resp.status_code}: {command}")
+            except Exception as error:
+                self.logger.warning("u2 /shell failed: " + command + " -> " + str(error))
         try:
             result = self.u2.shell(command)
+            return getattr(result, "output", "") or ""
         except Exception as error:
-            self.logger.warning("shell failed: " + command + " -> " + str(error))
+            self.logger.warning("u2 shell failed: " + command + " -> " + str(error))
             return ""
-        return getattr(result, "output", "") or ""
+
+    def _shizuku_shell(self, command: str) -> str:
+        """状态查询 / force-stop 等操作仍走 Shizuku。"""
+        try:
+            from core.android.shizuku import ShizukuClient
+
+            client = ShizukuClient.active()
+            if client is None:
+                raise RuntimeError("ShizukuClient is not initialized")
+            ok, result = client.execute_command(command)
+            if not ok:
+                raise RuntimeError(str(result))
+            return getattr(result, "stdout", "") or ""
+        except Exception as error:
+            self.logger.warning("shizuku shell failed: " + command + " -> " + str(error))
+            return ""
+
+    def _shell(self, command: str) -> str:
+        """兼容旧调用：默认走 Shizuku（事件注入请显式用 ``_u2_shell``）。"""
+        return self._shizuku_shell(command)
 
     def screen_size(self):
         """实际物理分辨率（``wm size`` 的 Physical size）。"""
@@ -136,7 +195,7 @@ class AndroidPower:
     def wake(self) -> None:
         if not self.is_screen_on():
             self.logger.info("Waking screen up.")
-            self._shell("input keyevent " + KEYCODE_WAKEUP)
+            self._u2_shell("input keyevent " + KEYCODE_WAKEUP)
             # 熄屏很久后按 WAKEUP，锁屏界面要 1.5~2s 才真正绘制出来；
             # 之前只等 0.8s 就上滑，滑动落在黑屏/doze 上，密码盘根本没出来，
             # 后面点 PIN 全打空 -> "Unlock failed, keyguard still showing."
@@ -154,9 +213,13 @@ class AndroidPower:
         end = self._scale(swipe.get("to", [540, 900]))
         duration = int(swipe.get("duration_ms", 150))
         keypad = self.settings.get("keypad") or {}
+        self.logger.info(
+            f"unlock geometry: screen={self.screen_size()} swipe={start}->{end} "
+            f"digits={len(self.password)} first_key={self._scale(keypad.get(self.password[0], (0, 0)))}"
+        )
         # 上滑 + 点 PIN 整体重试两次：锁屏刚亮起时第一次上滑常常打空
         for attempt in range(1, 3):
-            self._shell(f"input swipe {start[0]} {start[1]} {end[0]} {end[1]} {duration}")
+            self._u2_shell(f"input swipe {start[0]} {start[1]} {end[0]} {end[1]} {duration}")
             time.sleep(1.8)
             for char in self.password:
                 point = keypad.get(char)
@@ -164,7 +227,7 @@ class AndroidPower:
                     self.logger.warning("Keypad has no coordinate for digit: " + char)
                     return False
                 x, y = self._scale(point)
-                self._shell(f"input tap {x} {y}")
+                self._u2_shell(f"input tap {x} {y}")
                 time.sleep(0.35)
             time.sleep(1.5)
             if not self.is_locked():

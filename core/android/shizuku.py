@@ -165,12 +165,22 @@ class ShizukuClient:
     package management.
     """
 
+    # Android 入口只创建一个实例（android_main.py），这里留一个只读句柄，
+    # 让 core/android/power.py 之类的模块可以显式指定「走 Shizuku 通道」，
+    # 而不必依赖被 patch_adb 改过的 adbutils。
+    _active: Any = None
+
+    @classmethod
+    def active(cls):
+        return cls._active
+
     def __init__(self, logger: 'Baas_thread.Logger'):
         """Initialize the ShizukuClient.
 
         Args:
             logger (Baas_thread.Logger): The logger instance for logging messages.
         """
+        ShizukuClient._active = self
         activity = main_activity()
         if not activity:
             logger.error("ShuzikuClient: cannot load main activity.")
