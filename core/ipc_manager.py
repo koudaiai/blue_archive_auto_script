@@ -25,8 +25,15 @@ class SharedMemory:
     def set_data(name, data, size):
         if name not in SharedMemory.shm_map:
             # 句柄丢了（OCR 服务重建过共享内存、或模块被重新导入）时，
-            # 按名字重新打开一次，别让整条任务因为「not found」直接失败。
-            SharedMemory.shm_map[name] = SharedMemory(name)
+            # 按名字重新打开一次；打不开就抛 SharedMemoryError，让调用方
+            # 退回 multipart 内联传输，而不是把整条任务打死。
+            try:
+                SharedMemory.shm_map[name] = SharedMemory(name)
+            except SharedMemoryError:
+                raise
+            except Exception as error:  # noqa: BLE001
+                # Android 上 shared_memory 模块是 None，会抛 AttributeError
+                raise SharedMemoryError(f"Shared memory {name} unavailable: {error}") from error
         shm = SharedMemory.shm_map[name]
         if shm.size < size:
             raise SharedMemoryError(f"Shared memory {name} size {shm.size} not enough for {size}")

@@ -240,7 +240,13 @@ class BaasOcrClient:
             },
             "ret_options": ret_options
         }
-        self.get_request_data(data, pass_method, origin_image, local_path, shared_memory_name)
+        try:
+            self.get_request_data(data, pass_method, origin_image, local_path, shared_memory_name)
+        except SharedMemoryError:
+            # Android 上共享内存句柄会丢（multiprocessing 的 shm 在 p4a 下不稳定），
+            # 不能因此把整条任务打死：退回 multipart 内联传输，只是慢一点。
+            pass_method = 1
+            data["image"]["pass_method"] = 1
         if pass_method in [0, 2]:
             return requests.post(url, json=data)
         elif pass_method == 1:
@@ -266,7 +272,13 @@ class BaasOcrClient:
                 "pass_method": pass_method,
             },
         }
-        self.get_request_data(data, pass_method, origin_image, local_path, shared_memory_name)
+        try:
+            self.get_request_data(data, pass_method, origin_image, local_path, shared_memory_name)
+        except SharedMemoryError:
+            # Android 上共享内存句柄会丢（multiprocessing 的 shm 在 p4a 下不稳定），
+            # 不能因此把整条任务打死：退回 multipart 内联传输，只是慢一点。
+            pass_method = 1
+            data["image"]["pass_method"] = 1
         if pass_method in [0, 2]:
             return requests.post(url, json=data)
         elif pass_method == 1:
@@ -316,7 +328,13 @@ class BaasOcrClient:
                 "pass_method": pass_method,
             },
         }
-        self.get_request_data(data, pass_method, origin_image, local_path, shared_memory_name)
+        try:
+            self.get_request_data(data, pass_method, origin_image, local_path, shared_memory_name)
+        except SharedMemoryError:
+            # Android 上共享内存句柄会丢（multiprocessing 的 shm 在 p4a 下不稳定），
+            # 不能因此把整条任务打死：退回 multipart 内联传输，只是慢一点。
+            pass_method = 1
+            data["image"]["pass_method"] = 1
         if pass_method in [0, 2]:
             return requests.post(url, json=data)
         elif pass_method == 1:
