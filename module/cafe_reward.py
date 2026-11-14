@@ -104,15 +104,20 @@ def cafe_to_gift(self):
     picture.co_detect(self, rgb_ends, rgb_possibles, None, img_possibles, True)
 
 
-def screenshot_thread(self, delay):
+def screenshot_thread(self, delay, frames=None):
     if not self.is_android_device:
         delay += 0.1
     time.sleep(delay)
     if self.is_android_device:
-        # 必须用配置好的截图通道（adb + -d 虚拟屏）。以前用 u2 截图，拿到的是
-        # 主屏上 BAAS 自己的界面（2400x1080），match() 永远找不到学生，
-        # 表现就是「只拖礼物、不摸头」。
-        self.update_screenshot_array()
+        # 拖动过程中爱心是逐渐出现的，只拍一帧会漏掉一部分学生
+        # （表现就是「识别到了但只点一两个」或「No interaction found」）。
+        # 在拖动还没结束时连拍几帧，交给 find_student_position 合并去重。
+        bucket = frames if frames is not None else []
+        for _ in range(3):
+            self.update_screenshot_array()
+            if self.latest_img_array is not None:
+                bucket.append(self.latest_img_array.copy())
+            time.sleep(0.2)
     else:
         self.update_screenshot_array()
         cv2.imwrite("cafe_reward_shot.png", self.latest_img_array)
@@ -143,13 +148,16 @@ def swipe_gift_thread(self, duration, ret_queue):
 def swipe_gift_and_screenshot(self):
     shotDelay = self.config.cafe_reward_interaction_shot_delay
     if self.is_android_device:
-        t1 = threading.Thread(target=screenshot_thread, args=(self, shotDelay))
+        frames = []
+        self._cafe_frames = frames
+        t1 = threading.Thread(target=screenshot_thread, args=(self, shotDelay, frames))
         t1.start()
         start_t = time.time()
         # 拖动要足够慢，否则礼物一闪而过、爱心还没出现就已经截完图了。
         # adb 的 input swipe 还要外加截图本身 ~0.3s 的节流开销，
         # 0.5s 的拖动根本盖不住这个窗口。
-        self.u2_swipe(131, 660, 1280, 660, duration=1.5)
+        self.u2_swipe(131, 660, 1280, 660, duration=1.8)
+        t1.join()
         return round(time.time() - start_t, 3)
     else:
         q = queue.Queue()
@@ -162,11 +170,25 @@ def swipe_gift_and_screenshot(self):
 
 def find_student_position(self):
     swipe_t = swipe_gift_and_screenshot(self)
-    img = cv2.resize(self.latest_img_array, (1280, 720), interpolation=cv2.INTER_AREA)
-    res = match(img)
+    frames = getattr(self, "_cafe_frames", None) or []
+    if not frames and self.latest_img_array is not None:
+        frames = [self.latest_img_array]
+    res = []
+    for frame in frames:
+        if frame is None:
+            continue
+        img = cv2.resize(frame, (1280, 720), interpolation=cv2.INTER_AREA)
+        res.extend(match(img))
+    # 多帧合并：同一颗爱心在不同帧里最多差几个像素，按 10px 去重
+    merged = []
+    for p in res:
+        if all(abs(p[0] - q[0]) > 10 or abs(p[1] - q[1]) > 10 for q in merged):
+            merged.append(p)
+    res = merged
+    self.logger.info(f"interaction frames: {len(frames)}, hearts: {len(res)}")
     if not res:
         self.logger.info("No interaction found")
-        if swipe_t < self.config.cafe_reward_interaction_shot_delay + 0.3:
+        if not self.is_android_device and swipe_t < self.config.cafe_reward_interaction_shot_delay + 0.3:
             self.logger.warning(
                 "Swipe duration : [ " + str(swipe_t) + "] should be a bit larger than shot delay : ""[ " +
                 str(self.config.cafe_reward_interaction_shot_delay) + " ]")
