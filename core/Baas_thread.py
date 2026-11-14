@@ -1509,7 +1509,9 @@ class Baas_thread:
         # ref: https://github.com/Genymobile/scrcpy/issues/1887#issuecomment-817520017
         # TODO: further tests for overlay_display_devices on DIFFERENT DEVICES are needed
         self.u2.shell("settings put global overlay_display_devices 1280x720/240")
-        time.sleep(1)
+        # 建屏后立刻 am start --display N 有概率把 activity 落到主屏上，
+        # 多等一会儿让 DisplayManager 把新屏注册完。
+        time.sleep(2)
         # 优先用 dumpsys display：它直接暴露 DisplayManager 的 display id，
         # 也就是 input -d / screencap -d 接受的值。SurfaceFlinger 的
         # DisplayDevice 只有内部 token 和 layerStack，Android 12 上 layerStack
@@ -1552,19 +1554,31 @@ class Baas_thread:
         if getattr(self, "target_display", None) is not None and self._android_package_running():
             return
         self.logger.info("Virtual display or game missing, re-setup before task.")
-        try:
-            self._setup_boa()
-        except Exception as error:
-            self.logger.warning("Re-setup virtual display failed: " + str(error))
-            return
-        try:
-            started = self._android_start_game()
-            self.logger.info(f"start game: {started}")
-            if started:
-                pictured = self._android_wait_for_picture(120)
-                self.logger.info(f"start game picture: {pictured}")
-        except Exception as error:
-            self.logger.warning("Restart game failed: " + str(error))
+        for attempt in (1, 2):
+            try:
+                self._setup_boa()
+            except Exception as error:
+                self.logger.warning(f"Re-setup virtual display failed ({attempt}): {error}")
+                time.sleep(2)
+                continue
+            try:
+                started = self._android_start_game()
+                self.logger.info(f"start game: {started}")
+                if started and self._android_wait_for_picture(90):
+                    self.logger.info(f"start game picture: True (attempt {attempt})")
+                    return
+            except Exception as error:
+                self.logger.warning(f"Restart game failed ({attempt}): {error}")
+            # 游戏没渲染到虚拟屏上（常见于新屏还没注册完就 am start）：
+            # 杀掉重来一次，第二次基本都能上屏。
+            self.logger.warning(f"Game not rendered on display after attempt {attempt}, retrying.")
+            try:
+                self.u2.shell(f"am force-stop {self.package_name}")
+            except Exception:
+                pass
+            self._clean_boa()
+            time.sleep(2)
+        self.logger.warning("Re-setup BoA failed, giving up this round.")
 
     def _get_android_power(self):
         """懒加载 Android 电源控制器（依赖已经初始化的 u2）。"""
