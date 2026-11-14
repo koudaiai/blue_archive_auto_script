@@ -27,10 +27,17 @@ def start(self):
     self.logger.info("-- START BLUE ARCHIVE --")
     if host_platform_is_android():
         self.u2.shell(f"am start --display {self.target_display.logical_id} -n {self.package_name}/{self.activity_name}")
+        # 冷启动瞬间虚拟屏上还没有任何图层，screencap 会返回 0 字节，
+        # 直接进 to_main_page 就会在 cv2.resize 上抛 !ssize.empty()。
+        # 先等游戏真的渲染出画面（稳定性循环里也是这么做的），再走识别。
+        if hasattr(self, "_android_wait_for_picture"):
+            pictured = self._android_wait_for_picture(120)
+            self.logger.info(f"start game picture: {pictured}")
     else:
         activity_name = None if self.server == 'CN' else self.activity_name
         self.u2.app_start(self.package_name, activity_name)
     self.to_main_page()
+
 
 
 def check_need_restart(self):

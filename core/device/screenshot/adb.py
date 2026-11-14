@@ -3,11 +3,17 @@ import cv2
 import numpy as np
 import socket
 import threading
+import time
 
 from core.utils import host_platform_is_android
 
 
 class AdbScreenshot:
+    # 空帧重试次数与间隔：游戏冷启动的瞬间虚拟屏还没有任何图层，
+    # screencap 会返回 0 字节，直接解码就是空图，下游 cv2.resize 会抛
+    # (-215:Assertion failed) !ssize.empty()。等一两秒通常就有画面了。
+    _EMPTY_RETRY = 4
+    _EMPTY_RETRY_INTERVAL = 0.4
     def __init__(self, conn):
         self.serial = conn.serial
         self.logger = conn.logger
@@ -50,7 +56,7 @@ class AdbScreenshot:
             except Exception:
                 pass
 
-    def screenshot(self):
+    def _capture_once(self) -> bytes:
         if host_platform_is_android() and self.display_id:
             # Binder IPC on Android cannot pass data larger than 500 KB,
             # so we have to pipe the screenshot data through a socket.
@@ -64,14 +70,29 @@ class AdbScreenshot:
             th.join(10)
             if th.is_alive():
                 raise TimeoutError('Timed out waiting for screenshot data')
-            data = out[0] if out else b''
-        else:
-            cmd = ['screencap', '-p']
-            data = self.adb.shell(cmd, stream=False, encoding=None)
+            return out[0] if out else b''
+        cmd = ['screencap', '-p']
+        return self.adb.shell(cmd, stream=False, encoding=None)
 
-        if len(data) < 500:
-            self.logger.warning(f'Unexpected screenshot: {data}')
-        image = np.frombuffer(data, np.uint8)
-        image = cv2.imdecode(image, cv2.IMREAD_COLOR)
-        return image
+    def screenshot(self):
+        data = b''
+        for attempt in range(self._EMPTY_RETRY):
+            data = self._capture_once()
+            if len(data) >= 500:
+                image = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+                if image is not None and image.size:
+                    return image
+            if attempt + 1 < self._EMPTY_RETRY:
+                time.sleep(self._EMPTY_RETRY_INTERVAL)
+
+        # 连拍几次还是空帧：目标屏当前没有内容（游戏刚拉起、或屏被关掉）。
+        # 抛明确的异常，避免下游抛 OpenCV 的 !ssize.empty() 让人无从判断。
+        if host_platform_is_android() and self.display_id:
+            raise TimeoutError(
+                f'Empty screenshot on display {self.display_id} '
+                f'(got {len(data)} bytes); the display may have nothing rendered yet'
+            )
+        self.logger.warning(f'Unexpected screenshot: {data}')
+        return None
+
 
