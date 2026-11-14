@@ -1551,6 +1551,15 @@ class Baas_thread:
         """
         if not utils.host_platform_is_android():
             return
+        # 关键：闲置后系统会把屏幕熄掉，而熄屏时 screencap -d <虚拟屏> 返回 0 字节。
+        # 定时任务到点时如果屏幕还是灭的，任务一进来就抓空图，连挂三次直接停摆。
+        try:
+            from core.android.foreground import acquire_screen_lock
+
+            acquire_screen_lock(self.logger)
+        except Exception as error:
+            self.logger.warning("Screen lock failed: " + str(error))
+        self._android_prepare()
         if getattr(self, "target_display", None) is not None and self._android_package_running():
             return
         self.logger.info("Virtual display or game missing, re-setup before task.")
@@ -1620,6 +1629,12 @@ class Baas_thread:
         try:
             self.logger.info("All tasks finished, closing game for idle.")
             power.stop_game(self.package_name)
+            try:
+                from core.android.foreground import release_screen_lock
+
+                release_screen_lock(self.logger)
+            except Exception as error:
+                self.logger.warning("Screen lock release failed: " + str(error))
         except Exception as error:
             self.logger.warning("Close game failed: " + str(error))
 
