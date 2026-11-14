@@ -112,12 +112,14 @@ def screenshot_thread(self, delay, frames=None):
         # 拖动过程中爱心是逐渐出现的，只拍一帧会漏掉一部分学生
         # （表现就是「识别到了但只点一两个」或「No interaction found」）。
         # 在拖动还没结束时连拍几帧，交给 find_student_position 合并去重。
+        # 拖动是「按住不放」的 3.5s 长手势，期间人物不会走动。
+        # 在这个窗口里多拍几帧，识别做完才松手，松手后立刻点击。
         bucket = frames if frames is not None else []
-        for _ in range(2):
+        for _ in range(3):
             self.update_screenshot_array()
             if self.latest_img_array is not None:
                 bucket.append(self.latest_img_array.copy())
-            time.sleep(0.2)
+            time.sleep(0.3)
     else:
         self.update_screenshot_array()
         cv2.imwrite("cafe_reward_shot.png", self.latest_img_array)
@@ -150,14 +152,25 @@ def swipe_gift_and_screenshot(self):
     if self.is_android_device:
         frames = []
         self._cafe_frames = frames
-        t1 = threading.Thread(target=screenshot_thread, args=(self, shotDelay, frames))
-        t1.start()
+        self._cafe_hearts = None
         start_t = time.time()
-        # 拖动要足够慢，否则礼物一闪而过、爱心还没出现就已经截完图了。
-        # adb 的 input swipe 还要外加截图本身 ~0.3s 的节流开销，
-        # 0.5s 的拖动根本盖不住这个窗口。
-        self.u2_swipe(131, 660, 1280, 660, duration=1.1)
-        t1.join()
+        t_shot = threading.Thread(target=screenshot_thread, args=(self, shotDelay, frames))
+        t_shot.start()
+
+        def _drag():
+            # 3.5s 的慢速拖动：整个识别过程人物都不会走动
+            self.u2_swipe(131, 660, 1280, 660, duration=3.5)
+
+        t_drag = threading.Thread(target=_drag)
+        t_drag.start()
+        t_shot.join()
+        # 松手之前就把爱心算出来，松手后可以立刻点
+        try:
+            self._cafe_hearts = hearts_from_frames(frames)
+        except Exception as error:  # noqa: BLE001 - 匹配失败就当没识别到
+            self.logger.warning(f"hearts match failed: {error}")
+            self._cafe_hearts = None
+        t_drag.join()
         return round(time.time() - start_t, 3)
     else:
         q = queue.Queue()
@@ -168,23 +181,30 @@ def swipe_gift_and_screenshot(self):
         t1.join()
         return q.get()
 
-def find_student_position(self):
-    swipe_t = swipe_gift_and_screenshot(self)
-    frames = getattr(self, "_cafe_frames", None) or []
-    if not frames and self.latest_img_array is not None:
-        frames = [self.latest_img_array]
+def hearts_from_frames(frames):
+    """把多帧识别结果合并成爱心坐标（同一条爱心按 10px 去重）。"""
     res = []
     for frame in frames:
         if frame is None:
             continue
         img = cv2.resize(frame, (1280, 720), interpolation=cv2.INTER_AREA)
         res.extend(match(img))
-    # 多帧合并：同一颗爱心在不同帧里最多差几个像素，按 10px 去重
     merged = []
     for p in res:
         if all(abs(p[0] - q[0]) > 10 or abs(p[1] - q[1]) > 10 for q in merged):
             merged.append(p)
-    res = merged
+    return merged
+
+
+def find_student_position(self):
+    swipe_t = swipe_gift_and_screenshot(self)
+    frames = getattr(self, "_cafe_frames", None) or []
+    # 拖动期间已经把识别算完了，直接用，省掉松手后的这几百毫秒
+    res = getattr(self, "_cafe_hearts", None)
+    if res is None:
+        if not frames and self.latest_img_array is not None:
+            frames = [self.latest_img_array]
+        res = hearts_from_frames(frames)
     self.logger.info(
         f"interaction frames: {len(frames)}, hearts: {len(res)}, swipe {swipe_t:.2f}s"
     )

@@ -279,9 +279,12 @@ class ShizukuClient:
             # 不要打 java 对象 repr：adb 通道下每次点击/滑动都会走这里，
             # 一条日志就能刷满整屏，真正的业务日志全被淹掉。
             text = command if isinstance(command, str) else " ".join(str(c) for c in command)
-            if len(text) > 120:
-                text = text[:117] + "..."
-            self.logger.info(f"ShizukuClient: exec {text}")
+            # screencap 每秒调用好几次，单独放开会把日志刷爆（一轮几十 MB），
+            # 它也属于正常心跳，不打日志。
+            if "screencap" not in text:
+                if len(text) > 120:
+                    text = text[:117] + "..."
+                self.logger.info(f"ShizukuClient: exec {text}")
             res = self.i_user_service.exec(args)
             result = CommandResult(
                 exitCode=int(res.exitCode),
