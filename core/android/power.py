@@ -137,7 +137,10 @@ class AndroidPower:
         if not self.is_screen_on():
             self.logger.info("Waking screen up.")
             self._shell("input keyevent " + KEYCODE_WAKEUP)
-            time.sleep(0.8)
+            # 熄屏很久后按 WAKEUP，锁屏界面要 1.5~2s 才真正绘制出来；
+            # 之前只等 0.8s 就上滑，滑动落在黑屏/doze 上，密码盘根本没出来，
+            # 后面点 PIN 全打空 -> "Unlock failed, keyguard still showing."
+            time.sleep(2.0)
 
     def unlock(self) -> bool:
         """上滑呼出 PIN 盘，逐位点按密码，最后确认是否真的解锁。"""
@@ -150,20 +153,24 @@ class AndroidPower:
         start = self._scale(swipe.get("from", [540, 2000]))
         end = self._scale(swipe.get("to", [540, 900]))
         duration = int(swipe.get("duration_ms", 150))
-        self._shell(f"input swipe {start[0]} {start[1]} {end[0]} {end[1]} {duration}")
-        time.sleep(1.2)
-
         keypad = self.settings.get("keypad") or {}
-        for char in self.password:
-            point = keypad.get(char)
-            if point is None:
-                self.logger.warning("Keypad has no coordinate for digit: " + char)
-                return False
-            x, y = self._scale(point)
-            self._shell(f"input tap {x} {y}")
-            time.sleep(0.35)
-        time.sleep(1.5)
-        return not self.is_locked()
+        # 上滑 + 点 PIN 整体重试两次：锁屏刚亮起时第一次上滑常常打空
+        for attempt in range(1, 3):
+            self._shell(f"input swipe {start[0]} {start[1]} {end[0]} {end[1]} {duration}")
+            time.sleep(1.8)
+            for char in self.password:
+                point = keypad.get(char)
+                if point is None:
+                    self.logger.warning("Keypad has no coordinate for digit: " + char)
+                    return False
+                x, y = self._scale(point)
+                self._shell(f"input tap {x} {y}")
+                time.sleep(0.35)
+            time.sleep(1.5)
+            if not self.is_locked():
+                return True
+            self.logger.info(f"Unlock attempt {attempt} failed, retrying with a slower swipe.")
+        return False
 
     def ensure_ready(self) -> bool:
         """确保屏幕点亮且已解锁。返回是否达成。"""
