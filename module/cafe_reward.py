@@ -81,10 +81,22 @@ def to_no2_cafe(self):
     return
 
 
+_FACE_TEMPLATES = None
+
+
+def face_templates():
+    """爱心模板只读一次：单帧识别也要 4 次 matchTemplate，别再重复读盘。"""
+    global _FACE_TEMPLATES
+    if _FACE_TEMPLATES is None:
+        _FACE_TEMPLATES = [
+            cv2.imread("src/images/CN/cafe/happy_face" + str(i) + ".png") for i in range(1, 5)
+        ]
+    return _FACE_TEMPLATES
+
+
 def match(img):
     res = []
-    for i in range(1, 5):
-        template = cv2.imread("src/images/CN/cafe/happy_face" + str(i) + ".png")
+    for template in face_templates():
         result = cv2.matchTemplate(img, template, cv2.TM_CCOEFF_NORMED)
         threshold = 0.75
         locations = np.where(result >= threshold)
@@ -104,12 +116,15 @@ def cafe_to_gift(self):
     picture.co_detect(self, rgb_ends, rgb_possibles, None, img_possibles, True)
 
 
-def screenshot_thread(self, delay, frames=None, stop_event=None):
-    """拖动期间一直抓帧，松手为止。
+CAFE_SHOT_DELAY = 1.0      # 拖动开始后第 1 秒截一张图
+CAFE_DRAG_DURATION = 3.0   # 拖动总时长（3s 慢扫，覆盖整排学生）
 
-    adb 的 input swipe 实际耗时不可控（请求 0.4s 实测 2.5s），不能按固定延迟
-    拍一两张；这里跟着拖动一路拍，松手后取最后一帧识别 —— 按住期间爱心不会
-    消失，最后一帧才是最新、最全的画面。
+
+def screenshot_thread(self, delay, frames=None, stop_event=None):
+    """拖动进行到 delay 秒时截【一张】图，并当场识别出爱心坐标。
+
+    截完立刻做模板匹配，整个过程在 3s 的拖动窗口内完成，
+    所以松手时坐标已经算好，可以马上点。
     """
     if not self.is_android_device:
         delay += 0.1
@@ -119,15 +134,17 @@ def screenshot_thread(self, delay, frames=None, stop_event=None):
         cv2.imwrite("cafe_reward_shot.png", self.latest_img_array)
         return
     frames = frames if frames is not None else []
-    self._cafe_frame_times = []
-    while stop_event is None or not stop_event.is_set():
-        self.update_screenshot_array()
-        if self.latest_img_array is not None:
-            frames.append(self.latest_img_array.copy())
-            self._cafe_frame_times.append(time.time())
-        if len(frames) >= 10:
-            break
-        time.sleep(0.05)
+    self.update_screenshot_array()
+    frame = self.latest_img_array
+    if frame is None:
+        return
+    frames.append(frame.copy())
+    self._cafe_frame_times.append(time.time())
+    try:
+        self._cafe_hearts = match(cv2.resize(frame, (1280, 720), interpolation=cv2.INTER_AREA))
+    except Exception as error:  # noqa: BLE001 - 单帧识别失败就当没识别到
+        self.logger.warning(f"hearts match failed: {error}")
+        self._cafe_hearts = None
 
 def gift_to_cafe(self):
     rgb_possibles = {"gift": (1240, 574)}
@@ -157,15 +174,17 @@ def swipe_gift_and_screenshot(self):
     if self.is_android_device:
         shotDelay = min(shotDelay, 0.35)
         frames = []
-        stop_event = threading.Event()
         self._cafe_frames = frames
-        t1 = threading.Thread(target=screenshot_thread, args=(self, shotDelay, frames, stop_event))
-        t1.start()
+        self._cafe_hearts = None
+        self._cafe_frame_times = []
         start_t = time.time()
-        # 终点收到 1120：拖到画面最右边会出框，爱心当即消失。
-        self.u2_swipe(131, 660, 1120, 660, duration=0.4)
-        stop_event.set()
-        t1.join(timeout=3)
+        t1 = threading.Thread(
+            target=screenshot_thread, args=(self, CAFE_SHOT_DELAY, frames)
+        )
+        t1.start()
+        # 3s 慢速横扫（终点 1120，不出画框），1s 处那张图已足够覆盖整排
+        self.u2_swipe(131, 660, 1120, 660, duration=CAFE_DRAG_DURATION)
+        t1.join(timeout=2)
         return round(time.time() - start_t, 3)
     else:
         q = queue.Queue()
@@ -182,15 +201,15 @@ def find_student_position(self):
     frames = getattr(self, "_cafe_frames", None) or []
     if not frames and self.latest_img_array is not None:
         frames = [self.latest_img_array]
-    res = []
-    # 只看最后一帧（松手前那一刻，最新最全）；没有结果再往前多看两帧
-    for frame in list(reversed(frames))[:3]:
-        if frame is None:
-            continue
-        found = match(cv2.resize(frame, (1280, 720), interpolation=cv2.INTER_AREA))
-        if found:
-            res = found
-            break
+    # 拖动期间（1s 处）已经识别完，直接用；没算出来的才回退到对帧重算
+    res = list(getattr(self, "_cafe_hearts", None) or [])
+    if not res:
+        for frame in list(reversed(frames))[:1]:
+            if frame is None:
+                continue
+            res = match(cv2.resize(frame, (1280, 720), interpolation=cv2.INTER_AREA))
+            if res:
+                break
     # 多帧合并：同一颗爱心在不同帧里最多差几个像素，按 10px 去重
     merged = []
     for p in res:
