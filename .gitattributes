@@ -1,0 +1,3 @@
+# 补丁必须保持 LF：Windows 上 core.autocrlf=true 会把 *.patch 转成 CRLF，
+# 导致 p4a 在容器里 patch -p1 失配。
+*.patch text eol=lf
