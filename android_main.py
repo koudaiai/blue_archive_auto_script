@@ -59,6 +59,20 @@ except Exception as error:
 from core.android.foreground import ensure_runtime_keepalive
 ensure_runtime_keepalive(logger)
 
+# 用户配置恢复必须放在这里 —— 早于任何 ConfigSet 初始化。
+# p4a 每次升级 APK 都会清空 <filesDir>/app 再解压默认配置，如果等到
+# Main 创建时才恢复（原来的位置），前面已有代码 save 过配置，
+# 默认值就被 snapshot 回 user_config，用户设置（锁屏 PIN、控制方式、
+# 任务时间表）会永久变成默认值 —— 这正是升级后「设置被重置」的原因。
+try:
+    from core.config import persist as _config_persist
+
+    _restored = _config_persist.restore_configs(os.path.dirname(os.path.abspath(__file__)))
+    if _restored:
+        logger.info(f"Restored {_restored} user config file(s) at startup.")
+except Exception as _error:  # noqa: BLE001 - 恢复失败不能阻断启动
+    logger.warning("Restore user config at startup failed: " + str(_error))
+
 
 import sys
 import types

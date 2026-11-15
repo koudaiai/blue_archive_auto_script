@@ -76,8 +76,12 @@ def restore_configs(project_root: str) -> int:
         for name in _json_files(source_dir):
             source = os.path.join(source_dir, name)
             target = os.path.join(target_dir, name)
-            if os.path.exists(target) and not _is_newer(source, target):
-                continue
+            # 不能按 mtime 判断新旧：p4a 升级 APK 时会清空 <filesDir>/app 再解压，
+            # 解压出来的默认配置 mtime 比用户副本（上次保存时间）更新，
+            # 于是这里判定「目标更新」而跳过恢复 —— 用户设置就被重置成默认值
+            # （表现为解锁密码变空、control_method 变 uiautomator2、任务时间归零）。
+            # user_config 是权威副本：ConfigSet.save 之后会 snapshot_config 回写，
+            # 所以这里无条件以副本为准。
             try:
                 shutil.copy2(source, target)
                 restored += 1
