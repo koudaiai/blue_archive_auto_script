@@ -44,26 +44,50 @@ def parse_checksums(text: str) -> dict[str, str]:
     return result
 
 
-def validate_model_dir(
+def check_model_dir(
     directory: Path,
     checksums: Optional[dict[str, str]] = None,
-) -> bool:
+) -> tuple[bool, str]:
+    """校验模型目录，返回 (是否有效, 失败原因)。
+
+    失败原因要能说清是哪一步挂的：Android 上打包的 OpenCV 可能没有 dnn
+    模块，这时只报一句「package is invalid」根本无从下手。
+    """
     try:
         if any(not (directory / name).is_file() for name in MODEL_FILES):
-            return False
+            return False, "missing model file"
         if checksums and any(sha256(directory / name) != checksums[name] for name in MODEL_FILES):
-            return False
+            return False, "checksum mismatch"
         metadata = json.loads((directory / "student_encoder.json").read_text(encoding="utf-8"))
         width = int(metadata["embedding_size"])
         gallery = np.load(directory / "gallery.npz", allow_pickle=False)
         embeddings = np.asarray(gallery["embeddings"], dtype=np.float32)
         ids = np.asarray(gallery["student_ids"])
         if embeddings.ndim != 2 or embeddings.shape[1] != width or len(ids) != len(embeddings):
-            return False
-        cv2.dnn.readNetFromONNX(str(directory / "student_encoder.onnx"))
-        return True
-    except (OSError, ValueError, KeyError, TypeError, cv2.error, json.JSONDecodeError):
-        return False
+            return False, (
+                f"gallery shape {getattr(embeddings, 'shape', None)} / "
+                f"ids {len(ids)} vs embedding_size {width}"
+            )
+        if not hasattr(cv2, "dnn"):
+            return False, "opencv has no cv2.dnn module"
+        net = cv2.dnn.readNetFromONNX(str(directory / "student_encoder.onnx"))
+        if net is None:
+            return False, "onnx model loaded None"
+        try:
+            if net.empty():
+                return False, "onnx model loaded empty"
+        except AttributeError:
+            pass
+        return True, ""
+    except Exception as error:  # noqa: BLE001 - 校验失败一律降级为不可用
+        return False, f"{type(error).__name__}: {error}"
+
+
+def validate_model_dir(
+    directory: Path,
+    checksums: Optional[dict[str, str]] = None,
+) -> bool:
+    return check_model_dir(directory, checksums)[0]
 
 
 def ensure_model_files(project_root: Path, timeout: float = 15.0) -> Path:
@@ -95,8 +119,9 @@ def ensure_model_files(project_root: Path, timeout: float = 15.0) -> Path:
                 if sha256(target) != checksums[name]:
                     raise ModelDownloadError("Checksum mismatch for " + name)
             (temporary_path / "SHA256SUMS").write_text(checksum_response.text, encoding="ascii")
-            if not validate_model_dir(temporary_path, checksums):
-                raise ModelDownloadError("Downloaded model package is invalid")
+            valid, reason = check_model_dir(temporary_path, checksums)
+            if not valid:
+                raise ModelDownloadError("Downloaded model package is invalid: " + reason)
             destination.mkdir(parents=True, exist_ok=True)
             for name in MODEL_FILES + ("SHA256SUMS",):
                 os.replace(temporary_path / name, destination / name)

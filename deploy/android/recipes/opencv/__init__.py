@@ -16,7 +16,10 @@ class OpenCVRecipe(NDKRecipe):
         process images, videos, objects, photos...
     '''
     # NOTE: https://github.com/kivy/python-for-android/issues/3203
-    version = '4.5.1'
+    # 4.5.1 的 dnn 不认识 HardSigmoid（学生识别模型是 MobileNetV3 结构），
+    # 导致手机版日程的「邀请偏好学生」一直降级成普通选课。
+    # 升到 4.8.1 与 PC 端行为一致（PC 上 4.8.1 能正常加载该 ONNX）。
+    version = '4.8.1'
     url = 'https://github.com/opencv/opencv/archive/{version}.zip'
     depends = ['numpy']
     patches = ['patches/p4a_build.patch']
@@ -142,17 +145,20 @@ class OpenCVRecipe(NDKRecipe):
                     self.get_build_dir(arch.arch),
                     _env=env)
 
-            # 在生成阶段后，修正 CMake 生成的链接命令中的无效标志 "-version"
+            # 在生成阶段后，修正 CMake 生成的链接命令中的无效标志 "-version"。
+            # 4.5.1 一定有这个文件；4.8 的生成器/目标名可能变化，找不到就跳过，
+            # 不要为了一个可有可无的修补让整个 40 分钟的构建 assert 失败。
             link_txt = 'modules/python3/CMakeFiles/opencv_python3.dir/link.txt'
-            assert exists(link_txt)
-            with open(link_txt, 'r+', encoding='utf-8') as f:
-                content = f.read()
-                if '-version' in content:
-                    # assert False, abspath(link_txt)
-                    content = content.replace('-version', ' ')
-                    f.seek(0)
-                    f.write(content)
-                    f.truncate()
+            if exists(link_txt):
+                with open(link_txt, 'r+', encoding='utf-8') as f:
+                    content = f.read()
+                    if '-version' in content:
+                        content = content.replace('-version', ' ')
+                        f.seek(0)
+                        f.write(content)
+                        f.truncate()
+            else:
+                print('opencv: link.txt not found, skip -version patch')
 
             shprint(sh.make, '-j' + str(cpu_count()), 'opencv_python' + python_major)
             # Install python bindings (cv2.so)
