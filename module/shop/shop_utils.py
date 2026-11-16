@@ -124,7 +124,15 @@ def buy(self, buy_list, shop_type="common_shop"):
             break
         if last_checked_idx >= length:
             break
-        last_checked_y -= swipe_get_y_diff(self, item_lines_y)
+        y_diff = swipe_get_y_diff(self, item_lines_y)
+        if y_diff <= 0:
+            # 滑动没有产生位移：继续循环只会无限滑同一个位置 + 原地点击。
+            # 宁可留几件没买，也不要卡死整个任务。
+            self.logger.warning(
+                "Shop list did not scroll after swipe (diff=" + str(y_diff) + "), stop scanning."
+            )
+            break
+        last_checked_y -= y_diff
 
 def get_item_position(self, shop_type="common_shop"):
     """
@@ -243,7 +251,11 @@ def swipe_get_y_diff(self, item_lines_y):
     crop_template_x = [629, 762]
     area = (crop_template_x[0], template_y_min, crop_template_x[1], template_y_max)
     tar_img = image.screenshot_cut(self, area)
-    self.swipe(616, 594, 616, 447, duration=0.05 if self.is_android_device else 0.5, post_sleep_time=1)
+    # Android 上原来用 0.05s（50ms）滑 147px，速度接近 3000px/s，会被系统当成
+    # fling：商品列表要么不滚要么回弹。随后 swipe_get_y_diff 取不到位移返回 0，
+    # buy() 就会在同一位置反复滑 + 原地点击，表现为「一直点同一个坐标」。
+    swipe_duration = 0.4 if self.is_android_device else 0.5
+    self.swipe(616, 594, 616, 447, duration=swipe_duration, post_sleep_time=1)
     self.update_screenshot_array()
     search_area = (crop_template_x[0] - 10, search_area_y_min, crop_template_x[1] + 10, search_area_y_max)
     position = image.search_image_in_area(self,
