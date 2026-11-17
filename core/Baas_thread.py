@@ -370,12 +370,8 @@ class Baas_thread:
             self.set_screenshot_interval(self.config.screenshot_interval)
 
             self.check_resolution()
-            try:
-                if utils.host_platform_is_android():
-                    self._setup_boa()
-            except Exception:
-                self.logger.warning("BoA setup failed")
-                raise
+            # 启动阶段不建虚拟屏：空闲时物理屏上会多出一个"叠加视图"悬浮窗。
+            # 建屏推迟到真正要跑任务时（_ensure_android_boa_ready 会兜底建屏 + 拉起游戏）。
             self.get_ocr_language()
             self.identifier = self.server
             if self.server == "Global":
