@@ -815,10 +815,12 @@ class Baas_thread:
         if previous_max > 240:
             # An earlier misread above the level 90 cap must not block valid readings.
             previous_max = -1
+        readings = []
         for attempt in range(2):
             ocr_res = self.ocr.get_region_res(
                 self, region, "en-us", "AP", "0123456789/"
             )
+            readings.append(ocr_res.strip().split('/'))
             try:
                 count, maximum = (int(value) for value in ocr_res.split('/'))
                 # AP can overflow its cap, but the cap is 24 to 240 and never
@@ -833,9 +835,23 @@ class Baas_thread:
                 pass
             if attempt == 0:
                 self.logger.warning(f"Suspicious AP reading: {ocr_res!r}; retrying once.")
+                time.sleep(0.3)  # Let a returning page finish rendering before reading again.
                 self.update_screenshot_array()
                 # Leave extra room for the last digits on the retry crop.
                 region = (region[0], region[1], region[2] + 16, region[3])
+
+        # A truncated cap must not discard a consistent current AP reading. Reuse
+        # only a previously validated cap, with both reads agreeing on the count
+        # and both cap fragments matching its prefix; never infer the AP count.
+        cap = str(previous_max)
+        if (24 <= previous_max <= 240
+                and all(len(parts) == 2 and parts[0].isdecimal()
+                        and len(parts[1]) < len(cap) and cap.startswith(parts[1]) for parts in readings)
+                and int(readings[0][0]) == int(readings[1][0]) <= 999):
+            count = int(readings[1][0])
+            self.logger.info(f"AP cap truncated; keeping previously recorded cap {previous_max}.")
+            self.config_set.set("ap", {"count": count, "max": previous_max, "time": time.time()})
+            return count
 
         self.logger.warning("Failed to get AP.")
         return 999
