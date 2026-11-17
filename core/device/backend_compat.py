@@ -21,8 +21,8 @@ BACKEND_COMPAT = {
     ),
     "android_companion": BackendCompat(
         # 原值 1.5s 太保守：咖啡厅一轮有十几次滑动，累积会拖到几十秒。
-        # 0.8s 仍高于 Companion 识别滑动所需的下限，实测再微调。
-        swipe_min_duration=0.25, u2_swipe_min_duration=0.8,
+        # 摸头的原始 u2_swipe 是 0.5s，强制下限不能高于它，否则每次都翻倍。
+        swipe_min_duration=0.2, u2_swipe_min_duration=0.5,
         cafe_zoom_delay=0.15, cafe_gift_shot_delay=0.4,
     ),
 }
