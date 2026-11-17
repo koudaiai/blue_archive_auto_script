@@ -470,6 +470,7 @@ DEFAULT_CONFIG = """
     ],
     "activity_sweep_task_number": 1,
     "activity_sweep_times": "0",
+    "activity_sweep_use_generic_entry": false,
     "TacticalChallengeShopRefreshTime": "0",
     "final_restriction_rls_employ_formation_method": "default",
     "final_restriction_rls_employ_formation_copy_clear_unit_max_unavailable_student_count": 0,
