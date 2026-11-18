@@ -42,19 +42,37 @@ def start(self, recreate_virtual_scrcpy=False):
             cli = VirtualScrcpyClient.get_instance(self.serial)
         cli.launch_app(self.package_name, activity_name)
     else:
-        # android_companion 模式下 app_start 内部会 awaitGameInput，
-        # 而 SocketBroker 把它硬编码成只等 10 秒；蔚蓝档案冷启动常要 15~25 秒，
-        # 第一次必然超时。此时 am start 已经发出、游戏正在启动，重试就能拿到焦点窗口。
+        # android_companion 模式下 app_start 内部会 awaitGameInput，等的是虚拟屏上的
+        # "焦点窗口"。实测蓝档案启动到新建虚拟屏后经常不渲染也不拿焦点，
+        # 手动点一下预览画面就能起来 —— 说明需要一次触摸把 Activity 唤醒。
+        # 这里在等待期间由后台线程周期性点一下虚拟屏中央，替代人工干预。
+        import threading
+
+        stop_wake = threading.Event()
+
+        def _wake_display():
+            while not stop_wake.is_set():
+                try:
+                    self.u2.click(640, 360)
+                except Exception:
+                    pass
+                stop_wake.wait(2.0)
+
+        wake_thread = threading.Thread(target=_wake_display, daemon=True)
+        wake_thread.start()
         last_error = None
-        for attempt in range(1, 4):
-            try:
-                self.u2.app_start(self.package_name, activity_name)
-                last_error = None
-                break
-            except Exception as error:
-                last_error = error
-                self.logger.warning("app_start attempt " + str(attempt) + " failed: " + str(error))
-                time.sleep(3)
+        try:
+            for attempt in range(1, 4):
+                try:
+                    self.u2.app_start(self.package_name, activity_name)
+                    last_error = None
+                    break
+                except Exception as error:
+                    last_error = error
+                    self.logger.warning("app_start attempt " + str(attempt) + " failed: " + str(error))
+                    time.sleep(3)
+        finally:
+            stop_wake.set()
         if last_error is not None:
             raise last_error
     self.to_main_page()
