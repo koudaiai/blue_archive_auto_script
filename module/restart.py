@@ -7,6 +7,12 @@ from core.utils import host_platform_is_android
 def implement(self):
     if not self.is_android_device:
         return True
+    # 空闲收尾会拆掉虚拟屏（_clean_boa），而 restart 本身不建屏：
+    # 直接 _android_start_game 会因 target_display 为 None 返回 False，
+    # 紧接着 to_main_page 抓空帧崩在 cv2.resize。这里先确保屏和游戏就绪。
+    ensure = getattr(self, "_ensure_android_boa_ready", None)
+    if callable(ensure):
+        ensure()
     cur_package = self.u2.app_current()['package']
     if cur_package != self.package_name:
         self.logger.warning("APP NOT RUNNING current package: " + cur_package)

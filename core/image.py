@@ -25,6 +25,10 @@ def compare_image(self, name, threshold=0.8, rgb_diff=20):
     area = position.get_area(self.identifier, name)
     template_img = position.image_dic[self.identifier][name]
     ss_img = screenshot_cut(self, area)
+    # 冷启动/拆屏后的瞬间 screencap 会返回 0 字节或 None，
+    # 直接 resize 会抛 !ssize.empty() 把整条任务链打断。
+    if ss_img is None or getattr(ss_img, "size", 0) == 0:
+        return False
     if type(rgb_diff) is int:
         if not compare_image_rgb(template_img, ss_img, rgb_diff=rgb_diff):
             return False
