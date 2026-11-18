@@ -42,7 +42,21 @@ def start(self, recreate_virtual_scrcpy=False):
             cli = VirtualScrcpyClient.get_instance(self.serial)
         cli.launch_app(self.package_name, activity_name)
     else:
-        self.u2.app_start(self.package_name, activity_name)
+        # android_companion 模式下 app_start 内部会 awaitGameInput，
+        # 而 SocketBroker 把它硬编码成只等 10 秒；蔚蓝档案冷启动常要 15~25 秒，
+        # 第一次必然超时。此时 am start 已经发出、游戏正在启动，重试就能拿到焦点窗口。
+        last_error = None
+        for attempt in range(1, 4):
+            try:
+                self.u2.app_start(self.package_name, activity_name)
+                last_error = None
+                break
+            except Exception as error:
+                last_error = error
+                self.logger.warning("app_start attempt " + str(attempt) + " failed: " + str(error))
+                time.sleep(3)
+        if last_error is not None:
+            raise last_error
     self.to_main_page()
 
 
