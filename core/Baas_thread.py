@@ -672,6 +672,12 @@ class Baas_thread:
             # Android 上可能上电时屏幕是灭的/锁着的：先唤醒解锁，再跑 restart
             self._android_prepare()
             self.solve('restart')  # check package and go to main_page
+            # restart 已经建了虚拟屏并拉起游戏。如果此刻没有待执行任务，
+            # 让下面的 else 分支立刻收尾（关游戏 + 拆屏），
+            # 避免空闲时物理屏上一直挂着一个"叠加视图"窗口。
+            # 这里单独打标记而不是复用 task_finish_to_main_page：
+            # 后者会先走 to_main_page()，而游戏刚起到登录界面时那一步会卡。
+            self._startup_idle_pending = True
             while self.flag_run:
                 nextTask = self.scheduler.heartbeat()  # get next task
                 if nextTask:
@@ -713,6 +719,17 @@ class Baas_thread:
                         self.logger.info("BAAS Exited, Reason : Human Take Over")
                         self.signal_stop()
                 else:
+                    if getattr(self, "_startup_idle_pending", False):
+                        # 启动后首轮就没有任务：立刻把 restart 建好的屏和游戏收掉，
+                        # 不做 to_main_page（登录界面阶段会卡），直接收尾。
+                        self._startup_idle_pending = False
+                        self.logger.info("no task after startup, close game and virtual display")
+                        self._android_idle()
+                        try:
+                            if utils.host_platform_is_android() and self.u2 is not None:
+                                self._clean_boa()
+                        except Exception as error:
+                            self.logger.warning("Startup BoA cleanup failed: " + str(error))
                     if self.task_finish_to_main_page:
                         self.logger.info("all activities finished, return to main page")
                         push(self.logger, self.config)
