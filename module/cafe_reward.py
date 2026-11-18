@@ -105,15 +105,32 @@ def cafe_to_gift(self):
     picture.co_detect(self, rgb_ends, rgb_possibles, None, img_possibles, True)
 
 
-def screenshot_thread(self, delay):
+def screenshot_thread(self, delay, frames=None):
+    """拖动进行到 delay 秒时截【一张】图，并当场识别出爱心坐标。
+
+    截完立刻做模板匹配，整个识别在 3s 拖动窗口内完成，松手时坐标已算好。
+    原实现只写 latest_img_array、不 join，主线程可能在截图线程还没跑完时
+    就读了上一轮遗留的旧帧，导致爱心坐标对不上当前站位。
+    """
     if not self.is_android_device:
         delay += 0.1
     time.sleep(delay)
-    if self.is_android_device:
-        self.latest_img_array = self.u2_get_screenshot()
-    else:
+    if not self.is_android_device:
         self.update_screenshot_array()
         cv2.imwrite("cafe_reward_shot.png", self.latest_img_array)
+        return
+    frames = frames if frames is not None else []
+    self.latest_img_array = self.u2_get_screenshot()
+    frame = self.latest_img_array
+    if frame is None:
+        return
+    frames.append(frame.copy())
+    self._cafe_frame_times.append(time.time())
+    try:
+        self._cafe_hearts = match(cv2.resize(frame, (1280, 720), interpolation=cv2.INTER_AREA))
+    except Exception as error:  # noqa: BLE001 - 单帧识别失败就当没识别到
+        self.logger.warning(f"hearts match failed: {error}")
+        self._cafe_hearts = None
 
 def gift_to_cafe(self):
     rgb_possibles = {"gift": (1240, 574)}
@@ -140,12 +157,17 @@ def swipe_gift_thread(self, duration, ret_queue):
 def swipe_gift_and_screenshot(self):
     shotDelay = self.config.cafe_reward_interaction_shot_delay
     if self.is_android_device:
-        shotDelay = max(shotDelay, get_backend_compat(self.config.screenshot_method).cafe_gift_shot_delay)
-        t1 = threading.Thread(target=screenshot_thread, args=(self, shotDelay))
-        t1.start()
+        shotDelay = min(shotDelay, 0.35)
+        frames = []
+        self._cafe_frames = frames
+        self._cafe_hearts = None
+        self._cafe_frame_times = []
         start_t = time.time()
-        # 与 dev 分支一致：3s 慢扫覆盖整排学生，0.5s 会漏识别
-        self.u2_swipe(131, 660, 1280, 660, duration=CAFE_DRAG_DURATION)
+        t1 = threading.Thread(target=screenshot_thread, args=(self, shotDelay, frames))
+        t1.start()
+        # 3s 慢速横扫，终点 1120 不出画框；1s 处那一帧已足够覆盖整排学生
+        self.u2_swipe(131, 660, 1120, 660, duration=CAFE_DRAG_DURATION)
+        t1.join(timeout=2)
         return round(time.time() - start_t, 3)
     else:
         q = queue.Queue()
@@ -158,9 +180,13 @@ def swipe_gift_and_screenshot(self):
 
 def find_student_position(self):
     swipe_t = swipe_gift_and_screenshot(self)
-    img = cv2.resize(self.latest_img_array, (1280, 720), interpolation=cv2.INTER_AREA)
     threshold = get_backend_compat(self.config.screenshot_method).cafe_student_threshold
-    res = match(img, threshold)
+    # 截图线程已在拖动窗口内完成匹配，直接用它的结果；
+    # 拿不到才回退到读 latest_img_array（可能是旧帧，仅作兜底）。
+    res = getattr(self, "_cafe_hearts", None)
+    if res is None:
+        img = cv2.resize(self.latest_img_array, (1280, 720), interpolation=cv2.INTER_AREA)
+        res = match(img, threshold)
     if not res:
         self.logger.info("No interaction found")
         if swipe_t < self.config.cafe_reward_interaction_shot_delay + 0.3:
