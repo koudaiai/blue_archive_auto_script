@@ -201,7 +201,8 @@ def find_student_position(self):
                 self.config_set.set("cafe_reward_interaction_shot_delay",
                                     self.config.cafe_reward_interaction_shot_delay)
         time.sleep(1)
-    gift_to_cafe(self)
+    # 不在这里点 gift 回咖啡厅：识别到的爱心坐标就是这个礼物面板上的，
+    # 直接在当前面板摸头，摸完再点 X，省一次界面往返。
     index = 0
     while index < len(res):
         if (res[index][0] > 1174 and res[index][1] < 134) or res[index][1] > 580:
@@ -241,6 +242,8 @@ def interaction_for_cafe_solve_method3(self):
         cafe_to_gift(self)
         res = find_student_position(self)
         if len(res) == 0:
+            # 没识别到也要先退出礼物面板，否则下一轮 cafe_to_gift 会在错误界面里找不到入口
+            gift_to_cafe(self)
             continue
         self.logger.info("Find " + str(len(res)) + " interactions")
         # 与 dev 分支一致：只让第一个点击等 adb 往返，其余连发。
@@ -251,6 +254,8 @@ def interaction_for_cafe_solve_method3(self):
             self.click(res[j][0], min(res[j][1], 591), wait_over=(j == 0))
             if j:
                 time.sleep(0.05)
+        # 摸完再点右下角 X 回咖啡厅
+        gift_to_cafe(self)
         if i != max_times - 1:
             time.sleep(2)
             to_cafe(self)
