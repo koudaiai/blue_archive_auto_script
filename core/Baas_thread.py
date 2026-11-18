@@ -671,12 +671,10 @@ class Baas_thread:
                 return self._android_stability_loop()
             # Android 上可能上电时屏幕是灭的/锁着的：先唤醒解锁，再跑 restart
             self._android_prepare()
-            # 启动时不立刻开游戏：等调度器给出任务后再检查/拉起。
-            # restart 内部会按 app_current 判断，游戏已在跑时只做主页对齐，不会重复启动。
+            self.solve('restart')  # check package and go to main_page
             while self.flag_run:
                 nextTask = self.scheduler.heartbeat()  # get next task
                 if nextTask:
-                    self.solve('restart')  # check package and go to main_page
                     self.task_finish_to_main_page = True
                     self.daily_config_refresh()
                     if time.time() - self.last_refresh_u2_time > 10800:
