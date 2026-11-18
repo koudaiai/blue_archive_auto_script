@@ -218,16 +218,20 @@ def interaction_for_cafe_solve_method3(self):
         self.logger.info("Find " + str(len(res)) + " interactions")
         # 与 dev 分支一致：只让第一个点击等 adb 往返，其余连发。
         # 拖动结束后人物会开始走动，每个点击都等 0.3s 会让后几个点心错过位置。
+        # 只有第一个点击等 adb 往返（确认落地），其余连发不再等，
+        # 间隔压到 0.05s —— 拖动结束后人物就开始走动，等太久后几个点心会错过。
         for j in range(0, len(res)):
             self.click(res[j][0], min(res[j][1], 591), wait_over=(j == 0))
             if j:
-                time.sleep(0.12)
+                time.sleep(0.05)
         time.sleep(0.3)
         gift_to_cafe(self)
         if i != max_times - 1:
             time.sleep(2)
             to_cafe(self)
             self.click(68, 636, wait_over=True, duration=1)
+            # 右上角"结束编辑模式"：让游戏重排人物站位，下一轮识别才准。
+            self.click(1169, 90, wait_over=True, duration=1)
 
 
 def to_invitation_ticket(self, skip_first_screenshot=False):
