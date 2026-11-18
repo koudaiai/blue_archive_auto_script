@@ -10,6 +10,8 @@ from core.utils import merge_nearby_coordinates
 from core.device.backend_compat import get_backend_compat
 from statistics import median
 
+CAFE_DRAG_DURATION = 3.0   # 拖动总时长（3s 慢扫，覆盖整排学生）
+
 
 def implement(self):
     self.to_main_page()
@@ -142,7 +144,8 @@ def swipe_gift_and_screenshot(self):
         t1 = threading.Thread(target=screenshot_thread, args=(self, shotDelay))
         t1.start()
         start_t = time.time()
-        self.u2_swipe(131, 660, 1280, 660, duration=0.5)
+        # 与 dev 分支一致：3s 慢扫覆盖整排学生，0.5s 会漏识别
+        self.u2_swipe(131, 660, 1280, 660, duration=CAFE_DRAG_DURATION)
         return round(time.time() - start_t, 3)
     else:
         q = queue.Queue()
@@ -213,13 +216,18 @@ def interaction_for_cafe_solve_method3(self):
         if len(res) == 0:
             continue
         self.logger.info("Find " + str(len(res)) + " interactions")
+        # 与 dev 分支一致：只让第一个点击等 adb 往返，其余连发。
+        # 拖动结束后人物会开始走动，每个点击都等 0.3s 会让后几个点心错过位置。
         for j in range(0, len(res)):
-            self.click(res[j][0], min(res[j][1], 591), wait_over=True, duration=0.3)
+            self.click(res[j][0], min(res[j][1], 591), wait_over=(j == 0))
+            if j:
+                time.sleep(0.12)
+        time.sleep(0.3)
+        gift_to_cafe(self)
         if i != max_times - 1:
             time.sleep(2)
             to_cafe(self)
             self.click(68, 636, wait_over=True, duration=1)
-            self.click(1169, 90, wait_over=True, duration=1)
 
 
 def to_invitation_ticket(self, skip_first_screenshot=False):
