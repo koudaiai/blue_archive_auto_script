@@ -11,6 +11,7 @@ from core.device.backend_compat import get_backend_compat
 from statistics import median
 
 CAFE_DRAG_DURATION = 3.0   # 拖动总时长（3s 慢扫，覆盖整排学生）
+CAFE_SHOT_DELAY = 1.0      # 拖动开始后第 1 秒截一张图（dev 验证过的时机）
 
 
 def implement(self):
@@ -163,7 +164,7 @@ def swipe_gift_and_screenshot(self):
         self._cafe_hearts = None
         self._cafe_frame_times = []
         start_t = time.time()
-        t1 = threading.Thread(target=screenshot_thread, args=(self, shotDelay, frames))
+        t1 = threading.Thread(target=screenshot_thread, args=(self, CAFE_SHOT_DELAY, frames))
         t1.start()
         # 3s 慢速横扫，终点 1120 不出画框；1s 处那一帧已足够覆盖整排学生
         self.u2_swipe(131, 660, 1120, 660, duration=CAFE_DRAG_DURATION)
